@@ -12,14 +12,8 @@
 
 ## 📝 部署步骤
 
-### 1. 推送到 GitHub
-```bash
-git init
-git add .
-git commit -m "Deploy to Deno"
-git remote add origin https://github.com/你的用户名/仓库名.git
-git push -u origin main
-```
+### 1. fork 代码到github仓库
+
 
 ### 2. 部署到 Deno Deploy
 1. 访问 [dash.deno.com](https://dash.deno.com)
