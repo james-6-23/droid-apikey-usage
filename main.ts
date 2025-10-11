@@ -450,7 +450,7 @@ const HTML_CONTENT = `
 
         .table-container {
             padding: 0 var(--spacing-xl) var(--spacing-xl);
-            overflow-x: auto;
+            overflow-x: visible;
         }
 
         table {
@@ -459,11 +459,10 @@ const HTML_CONTENT = `
             border-spacing: 0;
             background: var(--color-surface);
             border-radius: var(--radius-md);
-            overflow: hidden;
+            overflow: visible;
             border: 1px solid var(--color-border);
-            transform: scale(1.25);
-            transform-origin: top left;
-            margin-bottom: calc(var(--spacing-xl) * 2);
+            margin-bottom: var(--spacing-xl);
+            table-layout: fixed;
         }
 
         thead {
@@ -472,10 +471,10 @@ const HTML_CONTENT = `
         }
 
         th {
-            padding: calc(var(--spacing-md) * 1.25);
+            padding: var(--spacing-md);
             text-align: left;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
             white-space: nowrap;
             letter-spacing: 0.3px;
             text-transform: uppercase;
@@ -483,10 +482,24 @@ const HTML_CONTENT = `
 
         th.number { text-align: right; }
 
+        /* 调整列宽 */
+        th:nth-child(1) { width: 5%; } /* ID */
+        th:nth-child(2) { width: 10%; } /* API Key */
+        th:nth-child(3) { width: 10%; } /* 开始时间 */
+        th:nth-child(4) { width: 10%; } /* 结束时间 */
+        th:nth-child(5) { width: 13%; } /* 总计额度 */
+        th:nth-child(6) { width: 13%; } /* 已使用 */
+        th:nth-child(7) { width: 13%; } /* 剩余额度 */
+        th:nth-child(8) { width: 11%; } /* 使用百分比 */
+        th:nth-child(9) { width: 8%; } /* 操作 */
+
         td {
-            padding: calc(var(--spacing-md) * 1.25);
+            padding: var(--spacing-md);
             border-bottom: 1px solid var(--color-border);
-            font-size: 16px;
+            font-size: 14px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         td.number {
@@ -501,15 +514,44 @@ const HTML_CONTENT = `
         tbody tr:hover { background-color: rgba(0, 122, 255, 0.04); }
         tbody tr:last-child td { border-bottom: none; }
 
-        tfoot {
-            background: var(--color-bg);
-            font-weight: 600;
+        /* 总计行样式 - 独特颜色 */
+        .total-row {
+            background: linear-gradient(135deg, rgba(0, 122, 255, 0.08) 0%, rgba(88, 86, 214, 0.08) 100%);
+            font-weight: 700;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 2px solid var(--color-primary) !important;
         }
 
-        tfoot td {
-            padding: calc(var(--spacing-md) * 1.25);
-            border-top: 2px solid var(--color-primary);
-            border-bottom: none;
+        .total-row td {
+            padding: calc(var(--spacing-md) * 1.2);
+            font-size: 15px;
+            color: var(--color-primary);
+            border-bottom: 2px solid var(--color-primary) !important;
+        }
+
+        /* 删除按钮样式 */
+        .table-delete-btn {
+            background: var(--color-danger);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+
+        .table-delete-btn:hover {
+            background: #D32F2F;
+            transform: scale(1.05);
+        }
+
+        .table-delete-btn:active {
+            transform: scale(0.98);
         }
 
         .key-cell {
@@ -694,14 +736,12 @@ const HTML_CONTENT = `
         }
 
         .import-section {
-            margin-bottom: var(--spacing-xl);
-            padding-bottom: var(--spacing-xl);
-            border-bottom: 1px solid var(--color-border);
+            margin-bottom: 0;
         }
 
-        .import-section h3, .keys-list-section h3 {
+        .import-section h3 {
             margin: 0 0 var(--spacing-md) 0;
-            font-size: 20px;
+            font-size: 22px;
             font-weight: 600;
             color: var(--color-text-primary);
             letter-spacing: -0.3px;
@@ -887,23 +927,20 @@ const HTML_CONTENT = `
             <div class="manage-content">
                 <button class="close-btn" onclick="toggleManagePanel()">✕</button>
                 <div class="manage-header">
-                    <h2>密钥管理</h2>
+                    <h2>批量导入密钥</h2>
                 </div>
                 <div class="manage-body">
                     <div class="import-section">
-                        <h3>批量导入</h3>
-                        <textarea id="importKeys" placeholder="每行粘贴一个 API Key&#10;fk-xxxxx&#10;fk-yyyyy&#10;fk-zzzzz" rows="6"></textarea>
+                        <h3>📦 添加 API Key</h3>
+                        <p style="color: var(--color-text-secondary); font-size: 14px; margin-bottom: var(--spacing-md);">
+                            每行粘贴一个 API Key，支持批量导入数百个密钥
+                        </p>
+                        <textarea id="importKeys" placeholder="每行粘贴一个 API Key&#10;fk-xxxxx&#10;fk-yyyyy&#10;fk-zzzzz" rows="10"></textarea>
                         <button class="import-btn" onclick="importKeys()">
                             <span id="importSpinner" style="display: none;" class="spinner"></span>
-                            <span id="importText">导入密钥</span>
+                            <span id="importText">🚀 导入密钥</span>
                         </button>
                         <div id="importResult" class="import-result"></div>
-                    </div>
-                    <div class="keys-list-section">
-                        <h3>已存储的密钥</h3>
-                        <div id="keysList" class="keys-list">
-                            <div class="loading">加载中...</div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -996,10 +1033,23 @@ const HTML_CONTENT = `
                             <th class="number">已使用</th>
                             <th class="number">剩余额度</th>
                             <th class="number">使用百分比</th>
+                            <th style="text-align: center;">操作</th>
                         </tr>
                     </thead>
                     <tbody>\`;
 
+            // 总计行放在第一行
+            tableHTML += \`
+                <tr class="total-row">
+                    <td colspan="4">总计 (SUM)</td>
+                    <td class="number">\${formatNumber(totalAllowance)}</td>
+                    <td class="number">\${formatNumber(totalUsed)}</td>
+                    <td class="number">\${formatNumber(totalRemaining)}</td>
+                    <td class="number">\${formatPercentage(overallRatio)}</td>
+                    <td></td>
+                </tr>\`;
+
+            // 数据行
             data.data.forEach(item => {
                 if (item.error) {
                     tableHTML += \`
@@ -1007,6 +1057,7 @@ const HTML_CONTENT = `
                             <td>\${item.id}</td>
                             <td class="key-cell" title="\${item.key}">\${item.key}</td>
                             <td colspan="6" class="error-row">加载失败: \${item.error}</td>
+                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
                         </tr>\`;
                 } else {
                     const remaining = item.totalAllowance - item.orgTotalTokensUsed;
@@ -1020,21 +1071,13 @@ const HTML_CONTENT = `
                             <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
                             <td class="number">\${formatNumber(remaining)}</td>
                             <td class="number">\${formatPercentage(item.usedRatio)}</td>
+                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
                         </tr>\`;
                 }
             });
 
             tableHTML += \`
                     </tbody>
-                    <tfoot>
-                        <tr>
-                            <td colspan="4">总计 (SUM)</td>
-                            <td class="number">\${formatNumber(totalAllowance)}</td>
-                            <td class="number">\${formatNumber(totalUsed)}</td>
-                            <td class="number">\${formatNumber(totalRemaining)}</td>
-                            <td class="number">\${formatPercentage(overallRatio)}</td>
-                        </tr>
-                    </tfoot>
                 </table>\`;
 
             document.getElementById('tableContent').innerHTML = tableHTML;
@@ -1045,37 +1088,8 @@ const HTML_CONTENT = `
             const panel = document.getElementById('managePanel');
             if (panel.style.display === 'none') {
                 panel.style.display = 'flex';
-                loadKeysList();
             } else {
                 panel.style.display = 'none';
-            }
-        }
-
-        // Load keys list
-        async function loadKeysList() {
-            const keysList = document.getElementById('keysList');
-            keysList.innerHTML = '<div class="loading">加载中...</div>';
-
-            try {
-                const response = await fetch('/api/keys');
-                const keys = await response.json();
-
-                if (keys.length === 0) {
-                    keysList.innerHTML = '<div class="loading">暂无密钥，请先导入</div>';
-                    return;
-                }
-
-                keysList.innerHTML = keys.map(key => \`
-                    <div class="key-item">
-                        <div class="key-info">
-                            <div class="key-id">\${key.name || key.id}</div>
-                            <div class="key-masked">\${key.masked}</div>
-                        </div>
-                        <button class="delete-btn" onclick="deleteKey('\${key.id}')">删除</button>
-                    </div>
-                \`).join('');
-            } catch (error) {
-                keysList.innerHTML = '<div class="error">加载失败: ' + error.message + '</div>';
             }
         }
 
@@ -1113,23 +1127,27 @@ const HTML_CONTENT = `
                     result.className = 'import-result success';
                     result.textContent = \`成功导入 \${data.success} 个密钥\${data.failed > 0 ? \`, \${data.failed} 个失败\` : ''}\`;
                     textarea.value = '';
-                    loadKeysList();
+                    // 关闭弹窗并刷新主页面数据
+                    setTimeout(() => {
+                        toggleManagePanel();
+                        loadData();
+                    }, 1500);
                 } else {
                     result.className = 'import-result error';
-                    result.textContent = '导入失败: ' + data.error;
+                    result.textContent = '导入失败: ' + data.error';
                 }
             } catch (error) {
                 result.className = 'import-result error';
                 result.textContent = '导入失败: ' + error.message;
             } finally {
                 spinner.style.display = 'none';
-                text.textContent = '导入密钥';
+                text.textContent = '🚀 导入密钥';
             }
         }
 
-        // Delete key
-        async function deleteKey(id) {
-            if (!confirm('确定要删除这个密钥吗？')) {
+        // Delete key from table - 从表格中删除密钥
+        async function deleteKeyFromTable(id) {
+            if (!confirm('确定要删除这个密钥吗？删除后需要刷新页面查看更新。')) {
                 return;
             }
 
@@ -1139,7 +1157,8 @@ const HTML_CONTENT = `
                 });
 
                 if (response.ok) {
-                    loadKeysList();
+                    // 删除成功后重新加载数据
+                    loadData();
                 } else {
                     const data = await response.json();
                     alert('删除失败: ' + data.error);
