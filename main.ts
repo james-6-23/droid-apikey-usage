@@ -322,7 +322,7 @@ const HTML_CONTENT = `
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API 余额监控看板</title>
+    <title>Droid API 余额监控看板</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -592,6 +592,35 @@ const HTML_CONTENT = `
         }
 
         .refresh-btn:active {
+            transform: translateY(-1px);
+        }
+
+        .clear-zero-btn {
+            position: fixed;
+            bottom: calc(var(--spacing-xl) + 70px);
+            right: var(--spacing-xl);
+            background: var(--color-danger);
+            color: white;
+            border: none;
+            border-radius: 100px;
+            padding: 16px 28px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(255, 59, 48, 0.35);
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+            z-index: 100;
+        }
+
+        .clear-zero-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 32px rgba(255, 59, 48, 0.45);
+        }
+
+        .clear-zero-btn:active {
             transform: translateY(-1px);
         }
 
@@ -1006,6 +1035,11 @@ const HTML_CONTENT = `
         </div>
     </div>
 
+    <button class="clear-zero-btn" onclick="clearZeroBalanceKeys()">
+        <span class="spinner" style="display: none;" id="clearSpinner"></span>
+        <span id="clearBtnText">🗑️ 清除零额度</span>
+    </button>
+
     <button class="refresh-btn" onclick="loadData()">
         <span class="spinner" style="display: none;" id="spinner"></span>
         <span id="btnText">🔄 刷新数据</span>
@@ -1268,6 +1302,65 @@ const HTML_CONTENT = `
             } catch (error) {
                 alert('删除失败: ' + error.message);
             }
+        }
+
+        // Clear zero balance keys - 清除零额度或负额度的密钥
+        async function clearZeroBalanceKeys() {
+            if (!allData) {
+                alert('请先加载数据');
+                return;
+            }
+
+            // 找出剩余额度小于等于0的密钥
+            const zeroBalanceKeys = allData.data.filter(item => {
+                if (item.error) return false;
+                const remaining = item.totalAllowance - item.orgTotalTokensUsed;
+                return remaining <= 0;
+            });
+
+            if (zeroBalanceKeys.length === 0) {
+                alert('没有需要清除的零额度密钥');
+                return;
+            }
+
+            if (!confirm(\`确定要删除 \${zeroBalanceKeys.length} 个零额度或负额度的密钥吗？此操作不可恢复！\`)) {
+                return;
+            }
+
+            const clearSpinner = document.getElementById('clearSpinner');
+            const clearBtnText = document.getElementById('clearBtnText');
+
+            clearSpinner.style.display = 'inline-block';
+            clearBtnText.textContent = '清除中...';
+
+            let successCount = 0;
+            let failCount = 0;
+
+            // 批量删除
+            for (const item of zeroBalanceKeys) {
+                try {
+                    const response = await fetch(\`/api/keys/\${item.id}\`, {
+                        method: 'DELETE'
+                    });
+
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                } catch (error) {
+                    failCount++;
+                    console.error(\`Failed to delete key \${item.id}:\`, error);
+                }
+            }
+
+            clearSpinner.style.display = 'none';
+            clearBtnText.textContent = '🗑️ 清除零额度';
+
+            alert(\`清除完成！\\n成功删除: \${successCount} 个\\n失败: \${failCount} 个\`);
+
+            // 重新加载数据
+            loadData();
         }
 
         document.addEventListener('DOMContentLoaded', loadData);
