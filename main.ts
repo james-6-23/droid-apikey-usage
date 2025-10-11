@@ -997,7 +997,7 @@ const HTML_CONTENT = `
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 API 余额监控看板</h1>
+            <h1> Droid🚀 API 余额监控看板</h1>
             <div class="update-time" id="updateTime">正在加载...</div>
             <button class="manage-btn" onclick="toggleManagePanel()">⚙️ 管理密钥</button>
         </div>
