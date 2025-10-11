@@ -999,6 +999,9 @@ const HTML_CONTENT = `
         <div class="header">
             <h1>🚀 Droid API 余额监控看板</h1>
             <div class="update-time" id="updateTime">正在加载...</div>
+            <div style="margin-top: 8px; font-size: 14px; opacity: 0.85;">
+                <span id="autoRefreshStatus">自动刷新: 启用中 | 下次刷新: <span id="headerNextRefresh">计算中...</span></span>
+            </div>
             <button class="manage-btn" onclick="toggleManagePanel()">⚙️ 管理密钥</button>
         </div>
 
@@ -1021,6 +1024,29 @@ const HTML_CONTENT = `
                             <span id="importText">🚀 导入密钥</span>
                         </button>
                         <div id="importResult" class="import-result"></div>
+                    </div>
+
+                    <div class="import-section" style="margin-top: var(--spacing-xl); padding-top: var(--spacing-xl); border-top: 1.5px solid var(--color-border);">
+                        <h3>⏱️ 自动刷新设置</h3>
+                        <p style="color: var(--color-text-secondary); font-size: 14px; margin-bottom: var(--spacing-md);">
+                            设置自动刷新间隔时间（分钟）
+                        </p>
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                            <input type="number" id="refreshInterval" min="1" max="1440" value="30"
+                                   style="width: 120px; padding: 12px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); font-size: 15px; font-family: 'Fira Code', monospace;">
+                            <span style="color: var(--color-text-secondary); font-size: 15px;">分钟</span>
+                        </div>
+                        <div style="display: flex; gap: var(--spacing-sm); margin-bottom: var(--spacing-md);">
+                            <button class="import-btn" onclick="saveRefreshSettings()" style="background: var(--color-success);">
+                                💾 保存设置
+                            </button>
+                            <button class="import-btn" onclick="toggleAutoRefresh()" id="toggleRefreshBtn" style="background: var(--color-secondary);">
+                                ⏸️ 暂停自动刷新
+                            </button>
+                        </div>
+                        <div id="refreshStatus" style="color: var(--color-text-secondary); font-size: 14px; font-weight: 500;">
+                            下次刷新: <span id="nextRefreshDisplay">计算中...</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1050,6 +1076,12 @@ const HTML_CONTENT = `
         let currentPage = 1;
         let itemsPerPage = 10;
         let allData = null;
+
+        // 自动刷新变量
+        let autoRefreshInterval = null;
+        let autoRefreshMinutes = 30; // 默认30分钟
+        let nextRefreshTime = null;
+        let countdownInterval = null;
 
         function formatNumber(num) {
             if (num === undefined || num === null) {
@@ -1084,6 +1116,8 @@ const HTML_CONTENT = `
                         throw new Error(data.error);
                     }
                     displayData(data);
+                    // 重置自动刷新计时器
+                    resetAutoRefresh();
                 })
                 .catch(error => {
                     document.getElementById('tableContent').innerHTML = \`<div class="error">❌ 加载失败: \${error.message}</div>\`;
@@ -1363,7 +1397,140 @@ const HTML_CONTENT = `
             loadData();
         }
 
-        document.addEventListener('DOMContentLoaded', loadData);
+        // 自动刷新功能
+        function initAutoRefresh() {
+            // 从 localStorage 加载设置
+            const savedInterval = localStorage.getItem('autoRefreshInterval');
+            const isEnabled = localStorage.getItem('autoRefreshEnabled');
+
+            if (savedInterval) {
+                autoRefreshMinutes = parseInt(savedInterval);
+                document.getElementById('refreshInterval').value = autoRefreshMinutes;
+            }
+
+            // 默认启用自动刷新
+            if (isEnabled === null || isEnabled === 'true') {
+                startAutoRefresh();
+            } else {
+                updateToggleButton(false);
+            }
+        }
+
+        function startAutoRefresh() {
+            // 清除现有的计时器
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+            }
+
+            // 设置下次刷新时间
+            nextRefreshTime = Date.now() + (autoRefreshMinutes * 60 * 1000);
+
+            // 启动自动刷新计时器
+            autoRefreshInterval = setInterval(() => {
+                console.log('自动刷新数据...');
+                loadData();
+            }, autoRefreshMinutes * 60 * 1000);
+
+            // 启动倒计时显示
+            updateCountdown();
+            countdownInterval = setInterval(updateCountdown, 1000);
+
+            // 更新状态显示
+            document.getElementById('autoRefreshStatus').innerHTML = '自动刷新: <span style="color: #34C759;">启用中</span> | 下次刷新: <span id="headerNextRefresh">计算中...</span>';
+            updateToggleButton(true);
+            localStorage.setItem('autoRefreshEnabled', 'true');
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+            nextRefreshTime = null;
+            document.getElementById('nextRefreshDisplay').textContent = '已暂停';
+            document.getElementById('headerNextRefresh').textContent = '已暂停';
+            document.getElementById('autoRefreshStatus').innerHTML = '自动刷新: <span style="color: #FF9500;">已暂停</span>';
+            updateToggleButton(false);
+            localStorage.setItem('autoRefreshEnabled', 'false');
+        }
+
+        function resetAutoRefresh() {
+            if (autoRefreshInterval) {
+                // 如果自动刷新已启用，重置计时器
+                startAutoRefresh();
+            }
+        }
+
+        function updateCountdown() {
+            if (!nextRefreshTime) return;
+
+            const now = Date.now();
+            const remaining = nextRefreshTime - now;
+
+            if (remaining <= 0) {
+                document.getElementById('nextRefreshDisplay').textContent = '正在刷新...';
+                document.getElementById('headerNextRefresh').textContent = '正在刷新...';
+                return;
+            }
+
+            const minutes = Math.floor(remaining / 60000);
+            const seconds = Math.floor((remaining % 60000) / 1000);
+            const timeText = `${minutes} 分 ${seconds} 秒后`;
+
+            document.getElementById('nextRefreshDisplay').textContent = timeText;
+            document.getElementById('headerNextRefresh').textContent = timeText;
+        }
+
+        function updateToggleButton(isRunning) {
+            const btn = document.getElementById('toggleRefreshBtn');
+            if (isRunning) {
+                btn.innerHTML = '⏸️ 暂停自动刷新';
+                btn.style.background = 'var(--color-warning)';
+            } else {
+                btn.innerHTML = '▶️ 启动自动刷新';
+                btn.style.background = 'var(--color-success)';
+            }
+        }
+
+        function saveRefreshSettings() {
+            const input = document.getElementById('refreshInterval');
+            const newInterval = parseInt(input.value);
+
+            if (isNaN(newInterval) || newInterval < 1 || newInterval > 1440) {
+                alert('请输入有效的时间间隔（1-1440分钟）');
+                return;
+            }
+
+            autoRefreshMinutes = newInterval;
+            localStorage.setItem('autoRefreshInterval', newInterval.toString());
+
+            // 如果自动刷新正在运行，重启以应用新设置
+            if (autoRefreshInterval) {
+                startAutoRefresh();
+            }
+
+            alert(\`自动刷新间隔已设置为 \${newInterval} 分钟\`);
+        }
+
+        function toggleAutoRefresh() {
+            if (autoRefreshInterval) {
+                stopAutoRefresh();
+            } else {
+                startAutoRefresh();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            initAutoRefresh();
+        });
     </script>
 </body>
 </html>
