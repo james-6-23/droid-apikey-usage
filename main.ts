@@ -1134,7 +1134,7 @@ const HTML_CONTENT = `
                     }, 1500);
                 } else {
                     result.className = 'import-result error';
-                    result.textContent = '导入失败: ' + data.error';
+                    result.textContent = '导入失败: ' + data.error;
                 }
             } catch (error) {
                 result.className = 'import-result error';
