@@ -379,7 +379,7 @@ const HTML_CONTENT = `
         }
 
         .container {
-            max-width: 1750px;
+            max-width: 2400px;
             margin: 0 auto;
             background: var(--color-surface);
             border-radius: var(--radius-xl);
@@ -396,14 +396,14 @@ const HTML_CONTENT = `
         }
 
         .header h1 {
-            font-size: 34px;
+            font-size: 48px;
             font-weight: 700;
             letter-spacing: -0.5px;
             margin-bottom: var(--spacing-xs);
         }
 
         .header .update-time {
-            font-size: 15px;
+            font-size: 20px;
             opacity: 0.85;
             font-weight: 400;
         }
@@ -431,7 +431,7 @@ const HTML_CONTENT = `
         }
 
         .stat-card .label {
-            font-size: 14px;
+            font-size: 18px;
             color: var(--color-text-secondary);
             margin-bottom: var(--spacing-sm);
             font-weight: 500;
@@ -440,12 +440,14 @@ const HTML_CONTENT = `
         }
 
         .stat-card .value {
-            font-size: 40px;
+            font-size: 56px;
             font-weight: 600;
             background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', sans-serif;
+            font-variant-numeric: tabular-nums;
         }
 
         .table-container {
@@ -474,7 +476,7 @@ const HTML_CONTENT = `
             padding: var(--spacing-md);
             text-align: left;
             font-weight: 600;
-            font-size: 13px;
+            font-size: 16px;
             white-space: nowrap;
             letter-spacing: 0.3px;
             text-transform: uppercase;
@@ -496,7 +498,7 @@ const HTML_CONTENT = `
         td {
             padding: var(--spacing-md);
             border-bottom: 1px solid var(--color-border);
-            font-size: 14px;
+            font-size: 18px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -506,6 +508,7 @@ const HTML_CONTENT = `
             text-align: right;
             font-weight: 500;
             font-variant-numeric: tabular-nums;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', sans-serif;
         }
 
         td.error-row { color: var(--color-danger); }
@@ -526,7 +529,7 @@ const HTML_CONTENT = `
 
         .total-row td {
             padding: calc(var(--spacing-md) * 1.2);
-            font-size: 15px;
+            font-size: 20px;
             color: var(--color-primary);
             border-bottom: 2px solid var(--color-primary) !important;
         }
@@ -555,7 +558,7 @@ const HTML_CONTENT = `
         }
 
         .key-cell {
-            font-size: 14px;
+            font-size: 18px;
             color: var(--color-text-secondary);
             max-width: 200px;
             overflow: hidden;
@@ -832,6 +835,54 @@ const HTML_CONTENT = `
             background: var(--color-text-secondary);
         }
 
+        /* 分页样式 */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-lg);
+            padding: var(--spacing-lg) 0;
+        }
+
+        .pagination-btn {
+            background: var(--color-surface);
+            color: var(--color-text-primary);
+            border: 1.5px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            padding: 10px 16px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            min-width: 40px;
+        }
+
+        .pagination-btn:hover:not(:disabled) {
+            background: var(--color-primary);
+            color: white;
+            border-color: var(--color-primary);
+            transform: translateY(-2px);
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .pagination-btn.active {
+            background: var(--color-primary);
+            color: white;
+            border-color: var(--color-primary);
+        }
+
+        .pagination-info {
+            font-size: 16px;
+            color: var(--color-text-secondary);
+            font-weight: 500;
+            padding: 0 var(--spacing-md);
+        }
+
         .key-item {
             display: flex;
             justify-content: space-between;
@@ -961,6 +1012,11 @@ const HTML_CONTENT = `
     </button>
 
     <script>
+        // 分页变量
+        let currentPage = 1;
+        let itemsPerPage = 10;
+        let allData = null;
+
         function formatNumber(num) {
             if (num === undefined || num === null) {
                 return '0';
@@ -1006,7 +1062,8 @@ const HTML_CONTENT = `
         }
 
         function displayData(data) {
-            document.getElementById('updateTime').textContent = \`最后更新: \${data.update_time} | 共 \${data.total_count} 个API Key\`;
+            allData = data; // 保存数据
+            document.getElementById('updateTime').textContent = `最后更新: ${data.update_time} | 共 ${data.total_count} 个API Key`;
 
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
@@ -1014,14 +1071,31 @@ const HTML_CONTENT = `
             const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
 
             const statsCards = document.getElementById('statsCards');
-            statsCards.innerHTML = \`
-                <div class="stat-card"><div class="label">总计额度 (Total Allowance)</div><div class="value">\${formatNumber(totalAllowance)}</div></div>
-                <div class="stat-card"><div class="label">已使用 (Total Used)</div><div class="value">\${formatNumber(totalUsed)}</div></div>
-                <div class="stat-card"><div class="label">剩余额度 (Remaining)</div><div class="value">\${formatNumber(totalRemaining)}</div></div>
-                <div class="stat-card"><div class="label">使用百分比 (Usage %)</div><div class="value">\${formatPercentage(overallRatio)}</div></div>
-            \`;
+            statsCards.innerHTML = `
+                <div class="stat-card"><div class="label">总计额度 (Total Allowance)</div><div class="value">${formatNumber(totalAllowance)}</div></div>
+                <div class="stat-card"><div class="label">已使用 (Total Used)</div><div class="value">${formatNumber(totalUsed)}</div></div>
+                <div class="stat-card"><div class="label">剩余额度 (Remaining)</div><div class="value">${formatNumber(totalRemaining)}</div></div>
+                <div class="stat-card"><div class="label">使用百分比 (Usage %)</div><div class="value">${formatPercentage(overallRatio)}</div></div>
+            `;
 
-            let tableHTML = \`
+            renderTable();
+        }
+
+        function renderTable() {
+            if (!allData) return;
+
+            const data = allData;
+            const totalPages = Math.ceil(data.data.length / itemsPerPage);
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const pageData = data.data.slice(startIndex, endIndex);
+
+            const totalAllowance = data.totals.total_totalAllowance;
+            const totalUsed = data.totals.total_orgTotalTokensUsed;
+            const totalRemaining = totalAllowance - totalUsed;
+            const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
+
+            let tableHTML = `
                 <table>
                     <thead>
                         <tr>
@@ -1036,51 +1110,79 @@ const HTML_CONTENT = `
                             <th style="text-align: center;">操作</th>
                         </tr>
                     </thead>
-                    <tbody>\`;
+                    <tbody>`;
 
             // 总计行放在第一行
-            tableHTML += \`
+            tableHTML += `
                 <tr class="total-row">
                     <td colspan="4">总计 (SUM)</td>
-                    <td class="number">\${formatNumber(totalAllowance)}</td>
-                    <td class="number">\${formatNumber(totalUsed)}</td>
-                    <td class="number">\${formatNumber(totalRemaining)}</td>
-                    <td class="number">\${formatPercentage(overallRatio)}</td>
+                    <td class="number">${formatNumber(totalAllowance)}</td>
+                    <td class="number">${formatNumber(totalUsed)}</td>
+                    <td class="number">${formatNumber(totalRemaining)}</td>
+                    <td class="number">${formatPercentage(overallRatio)}</td>
                     <td></td>
-                </tr>\`;
+                </tr>`;
 
-            // 数据行
-            data.data.forEach(item => {
+            // 数据行 - 只显示当前页
+            pageData.forEach(item => {
                 if (item.error) {
-                    tableHTML += \`
+                    tableHTML += `
                         <tr>
-                            <td>\${item.id}</td>
-                            <td class="key-cell" title="\${item.key}">\${item.key}</td>
-                            <td colspan="6" class="error-row">加载失败: \${item.error}</td>
-                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
-                        </tr>\`;
+                            <td>${item.id}</td>
+                            <td class="key-cell" title="${item.key}">${item.key}</td>
+                            <td colspan="6" class="error-row">加载失败: ${item.error}</td>
+                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('${item.id}')">删除</button></td>
+                        </tr>`;
                 } else {
                     const remaining = item.totalAllowance - item.orgTotalTokensUsed;
-                    tableHTML += \`
+                    tableHTML += `
                         <tr>
-                            <td>\${item.id}</td>
-                            <td class="key-cell" title="\${item.key}">\${item.key}</td>
-                            <td>\${item.startDate}</td>
-                            <td>\${item.endDate}</td>
-                            <td class="number">\${formatNumber(item.totalAllowance)}</td>
-                            <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
-                            <td class="number">\${formatNumber(remaining)}</td>
-                            <td class="number">\${formatPercentage(item.usedRatio)}</td>
-                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
-                        </tr>\`;
+                            <td>${item.id}</td>
+                            <td class="key-cell" title="${item.key}">${item.key}</td>
+                            <td>${item.startDate}</td>
+                            <td>${item.endDate}</td>
+                            <td class="number">${formatNumber(item.totalAllowance)}</td>
+                            <td class="number">${formatNumber(item.orgTotalTokensUsed)}</td>
+                            <td class="number">${formatNumber(remaining)}</td>
+                            <td class="number">${formatPercentage(item.usedRatio)}</td>
+                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('${item.id}')">删除</button></td>
+                        </tr>`;
                 }
             });
 
-            tableHTML += \`
+            tableHTML += `
                     </tbody>
-                </table>\`;
+                </table>`;
+
+            // 添加分页控件
+            if (totalPages > 1) {
+                tableHTML += `<div class="pagination">`;
+
+                // 上一页按钮
+                tableHTML += `<button class="pagination-btn" onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>❮ 上一页</button>`;
+
+                // 页码信息
+                tableHTML += `<span class="pagination-info">第 ${currentPage} / ${totalPages} 页 (共 ${data.data.length} 条)</span>`;
+
+                // 下一页按钮
+                tableHTML += `<button class="pagination-btn" onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页 ❯</button>`;
+
+                tableHTML += `</div>`;
+            }
 
             document.getElementById('tableContent').innerHTML = tableHTML;
+        }
+
+        function changePage(page) {
+            if (!allData) return;
+            const totalPages = Math.ceil(allData.data.length / itemsPerPage);
+            if (page < 1 || page > totalPages) return;
+
+            currentPage = page;
+            renderTable();
+
+            // 滚动到表格顶部
+            document.querySelector('.table-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         // Toggle manage panel
