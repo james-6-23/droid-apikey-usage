@@ -1,9 +1,58 @@
-// main.ts
+// main.ts - Optimized by Apple Senior Engineer
 import { serve } from "https://deno.land/std@0.182.0/http/server.ts";
 import { format } from "https://deno.land/std@0.182.0/datetime/mod.ts";
+import { setCookie, getCookies } from "https://deno.land/std@0.182.0/http/cookie.ts";
 
 // Initialize Deno KV
 const kv = await Deno.openKv();
+
+// Get admin password from environment variable
+const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD");
+
+console.log(`🔒 Password Protection: ${ADMIN_PASSWORD ? 'ENABLED' : 'DISABLED'}`);
+
+// Session Management
+interface Session {
+  id: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+async function createSession(): Promise<string> {
+  const sessionId = crypto.randomUUID();
+  const session: Session = {
+    id: sessionId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
+  };
+  await kv.set(["sessions", sessionId], session);
+  return sessionId;
+}
+
+async function validateSession(sessionId: string): Promise<boolean> {
+  const result = await kv.get<Session>(["sessions", sessionId]);
+  if (!result.value) return false;
+
+  const session = result.value;
+  if (Date.now() > session.expiresAt) {
+    await kv.delete(["sessions", sessionId]);
+    return false;
+  }
+
+  return true;
+}
+
+async function isAuthenticated(req: Request): Promise<boolean> {
+  // If no password is set, allow access
+  if (!ADMIN_PASSWORD) return true;
+
+  const cookies = getCookies(req.headers);
+  const sessionId = cookies.session;
+
+  if (!sessionId) return false;
+
+  return await validateSession(sessionId);
+}
 
 // KV Storage Interface
 interface ApiKeyEntry {
@@ -63,16 +112,221 @@ async function batchImportKeys(keys: string[]): Promise<{ success: number; faile
   return { success, failed };
 }
 
-// HTML content is embedded as a template string
+// Login Page HTML
+const LOGIN_PAGE = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - API 余额监控看板</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', sans-serif;
+            background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 24px;
+            padding: 48px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 400px;
+            width: 100%;
+            animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(40px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .login-icon {
+            font-size: 64px;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            text-align: center;
+            color: #1D1D1F;
+            margin-bottom: 12px;
+            letter-spacing: -0.5px;
+        }
+
+        p {
+            text-align: center;
+            color: #86868B;
+            margin-bottom: 32px;
+            font-size: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #1D1D1F;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            padding: 16px;
+            border: 1.5px solid rgba(0, 0, 0, 0.06);
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #007AFF;
+            box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1);
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 16px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .error-message {
+            background: rgba(255, 59, 48, 0.1);
+            color: #FF3B30;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255, 59, 48, 0.2);
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+            animation: shake 0.4s;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-icon">🔐</div>
+        <h1>欢迎回来</h1>
+        <p>请输入管理员密码以访问系统</p>
+
+        <div class="error-message" id="errorMessage">
+            密码错误，请重试
+        </div>
+
+        <form onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input
+                    type="password"
+                    id="password"
+                    placeholder="输入密码"
+                    autocomplete="current-password"
+                    required
+                >
+            </div>
+
+            <button type="submit" class="login-btn">
+                登录
+            </button>
+        </form>
+    </div>
+
+    <script>
+        async function handleLogin(event) {
+            event.preventDefault();
+
+            const password = document.getElementById('password').value;
+            const errorMessage = document.getElementById('errorMessage');
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password }),
+                });
+
+                if (response.ok) {
+                    window.location.href = '/';
+                } else {
+                    errorMessage.classList.add('show');
+                    document.getElementById('password').value = '';
+                    document.getElementById('password').focus();
+
+                    setTimeout(() => {
+                        errorMessage.classList.remove('show');
+                    }, 3000);
+                }
+            } catch (error) {
+                alert('登录失败: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
+`;
+
+// Main Application HTML (continued in next message due to length)
 const HTML_CONTENT = `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API 余额监控看板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* Apple-inspired Design System */
+        /* Apple-inspired Design System with FiraCode */
         :root {
             --color-primary: #007AFF;
             --color-secondary: #5856D6;
@@ -97,13 +351,6 @@ const HTML_CONTENT = `
             --transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        @supports (backdrop-filter: blur(20px)) {
-            .glass-effect {
-                background: rgba(255, 255, 255, 0.72);
-                backdrop-filter: saturate(180%) blur(20px);
-            }
-        }
-
         * {
             margin: 0;
             padding: 0;
@@ -119,10 +366,20 @@ const HTML_CONTENT = `
             line-height: 1.5;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+
+        /* FiraCode for code/numbers - Scale 1.25x and anti-aliasing */
+        .code-font, .key-cell, td.number, .key-masked, #importKeys {
+            font-family: 'Fira Code', 'SF Mono', 'Monaco', 'Courier New', monospace;
+            font-feature-settings: "liga" 1, "calt" 1;
+            -webkit-font-smoothing: subpixel-antialiased;
+            -moz-osx-font-smoothing: auto;
+            text-rendering: optimizeLegibility;
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1750px;
             margin: 0 auto;
             background: var(--color-surface);
             border-radius: var(--radius-xl);
@@ -153,8 +410,8 @@ const HTML_CONTENT = `
 
         .stats-cards {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: var(--spacing-md);
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: var(--spacing-lg);
             padding: var(--spacing-xl);
             background: var(--color-bg);
         }
@@ -162,7 +419,7 @@ const HTML_CONTENT = `
         .stat-card {
             background: var(--color-surface);
             border-radius: var(--radius-lg);
-            padding: var(--spacing-lg);
+            padding: calc(var(--spacing-lg) * 1.25);
             text-align: center;
             border: 1px solid var(--color-border);
             transition: var(--transition);
@@ -174,7 +431,7 @@ const HTML_CONTENT = `
         }
 
         .stat-card .label {
-            font-size: 13px;
+            font-size: 14px;
             color: var(--color-text-secondary);
             margin-bottom: var(--spacing-sm);
             font-weight: 500;
@@ -183,7 +440,7 @@ const HTML_CONTENT = `
         }
 
         .stat-card .value {
-            font-size: 32px;
+            font-size: 40px;
             font-weight: 600;
             background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
             -webkit-background-clip: text;
@@ -204,6 +461,9 @@ const HTML_CONTENT = `
             border-radius: var(--radius-md);
             overflow: hidden;
             border: 1px solid var(--color-border);
+            transform: scale(1.25);
+            transform-origin: top left;
+            margin-bottom: calc(var(--spacing-xl) * 2);
         }
 
         thead {
@@ -212,10 +472,10 @@ const HTML_CONTENT = `
         }
 
         th {
-            padding: var(--spacing-md) var(--spacing-md);
+            padding: calc(var(--spacing-md) * 1.25);
             text-align: left;
             font-weight: 600;
-            font-size: 13px;
+            font-size: 14px;
             white-space: nowrap;
             letter-spacing: 0.3px;
             text-transform: uppercase;
@@ -224,14 +484,13 @@ const HTML_CONTENT = `
         th.number { text-align: right; }
 
         td {
-            padding: var(--spacing-md);
+            padding: calc(var(--spacing-md) * 1.25);
             border-bottom: 1px solid var(--color-border);
-            font-size: 15px;
+            font-size: 16px;
         }
 
         td.number {
             text-align: right;
-            font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
             font-weight: 500;
             font-variant-numeric: tabular-nums;
         }
@@ -248,14 +507,13 @@ const HTML_CONTENT = `
         }
 
         tfoot td {
-            padding: var(--spacing-md);
+            padding: calc(var(--spacing-md) * 1.25);
             border-top: 2px solid var(--color-primary);
             border-bottom: none;
         }
 
         .key-cell {
-            font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
-            font-size: 13px;
+            font-size: 14px;
             color: var(--color-text-secondary);
             max-width: 200px;
             overflow: hidden;
@@ -280,6 +538,7 @@ const HTML_CONTENT = `
             display: flex;
             align-items: center;
             gap: var(--spacing-xs);
+            z-index: 100;
         }
 
         .refresh-btn:hover {
@@ -365,7 +624,7 @@ const HTML_CONTENT = `
         .manage-content {
             background: var(--color-surface);
             border-radius: var(--radius-xl);
-            max-width: 900px;
+            max-width: 1000px;
             width: 100%;
             max-height: 85vh;
             overflow: hidden;
@@ -373,6 +632,7 @@ const HTML_CONTENT = `
             flex-direction: column;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
         }
 
         @keyframes slideUp {
@@ -403,6 +663,9 @@ const HTML_CONTENT = `
         }
 
         .close-btn {
+            position: absolute;
+            top: var(--spacing-md);
+            right: var(--spacing-md);
             background: rgba(255, 255, 255, 0.15);
             backdrop-filter: blur(10px);
             border: none;
@@ -416,6 +679,7 @@ const HTML_CONTENT = `
             align-items: center;
             justify-content: center;
             transition: var(--transition);
+            z-index: 10;
         }
 
         .close-btn:hover {
@@ -423,12 +687,15 @@ const HTML_CONTENT = `
             transform: rotate(90deg);
         }
 
-        .manage-content > div {
+        .manage-body {
             padding: var(--spacing-xl);
             overflow-y: auto;
+            flex: 1;
         }
 
         .import-section {
+            margin-bottom: var(--spacing-xl);
+            padding-bottom: var(--spacing-xl);
             border-bottom: 1px solid var(--color-border);
         }
 
@@ -445,11 +712,11 @@ const HTML_CONTENT = `
             padding: var(--spacing-md);
             border: 1.5px solid var(--color-border);
             border-radius: var(--radius-md);
-            font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
-            font-size: 14px;
+            font-size: 15px;
             resize: vertical;
             transition: var(--transition);
-            line-height: 1.6;
+            line-height: 1.8;
+            min-height: 150px;
         }
 
         #importKeys:focus {
@@ -504,7 +771,7 @@ const HTML_CONTENT = `
         }
 
         .keys-list {
-            max-height: 320px;
+            max-height: 400px;
             overflow-y: auto;
         }
 
@@ -529,7 +796,7 @@ const HTML_CONTENT = `
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: var(--spacing-md);
+            padding: calc(var(--spacing-md) * 1.25);
             background: var(--color-bg);
             border-radius: var(--radius-md);
             margin-bottom: var(--spacing-sm);
@@ -547,14 +814,13 @@ const HTML_CONTENT = `
         .key-id {
             font-weight: 600;
             color: var(--color-text-primary);
-            font-size: 15px;
-            margin-bottom: 4px;
+            font-size: 16px;
+            margin-bottom: 6px;
         }
 
         .key-masked {
-            font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
             color: var(--color-text-secondary);
-            font-size: 13px;
+            font-size: 14px;
         }
 
         .delete-btn {
@@ -562,7 +828,7 @@ const HTML_CONTENT = `
             color: white;
             border: none;
             border-radius: var(--radius-sm);
-            padding: 8px 16px;
+            padding: 10px 18px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
@@ -587,7 +853,14 @@ const HTML_CONTENT = `
                 grid-template-columns: 1fr;
                 padding: var(--spacing-lg);
             }
-            .table-container { padding: 0 var(--spacing-md) var(--spacing-lg); }
+            .table-container {
+                padding: 0 var(--spacing-md) var(--spacing-lg);
+                overflow-x: scroll;
+            }
+            table {
+                transform: scale(1);
+                margin-bottom: var(--spacing-lg);
+            }
             .manage-btn {
                 position: static;
                 margin-top: var(--spacing-md);
@@ -611,24 +884,26 @@ const HTML_CONTENT = `
 
         <!-- Management Panel -->
         <div class="manage-panel" id="managePanel" style="display: none;">
-            <div class="manage-header">
-                <h2>密钥管理</h2>
-                <button class="close-btn" onclick="toggleManagePanel()">✕</button>
-            </div>
             <div class="manage-content">
-                <div class="import-section">
-                    <h3>批量导入</h3>
-                    <textarea id="importKeys" placeholder="每行粘贴一个 API Key&#10;fk-xxxxx&#10;fk-yyyyy&#10;fk-zzzzz" rows="8"></textarea>
-                    <button class="import-btn" onclick="importKeys()">
-                        <span id="importSpinner" style="display: none;" class="spinner"></span>
-                        <span id="importText">导入密钥</span>
-                    </button>
-                    <div id="importResult" class="import-result"></div>
+                <button class="close-btn" onclick="toggleManagePanel()">✕</button>
+                <div class="manage-header">
+                    <h2>密钥管理</h2>
                 </div>
-                <div class="keys-list-section">
-                    <h3>已存储的密钥</h3>
-                    <div id="keysList" class="keys-list">
-                        <div class="loading">加载中...</div>
+                <div class="manage-body">
+                    <div class="import-section">
+                        <h3>批量导入</h3>
+                        <textarea id="importKeys" placeholder="每行粘贴一个 API Key&#10;fk-xxxxx&#10;fk-yyyyy&#10;fk-zzzzz" rows="6"></textarea>
+                        <button class="import-btn" onclick="importKeys()">
+                            <span id="importSpinner" style="display: none;" class="spinner"></span>
+                            <span id="importText">导入密钥</span>
+                        </button>
+                        <div id="importResult" class="import-result"></div>
+                    </div>
+                    <div class="keys-list-section">
+                        <h3>已存储的密钥</h3>
+                        <div id="keysList" class="keys-list">
+                            <div class="loading">加载中...</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -666,7 +941,7 @@ const HTML_CONTENT = `
         function loadData() {
             const spinner = document.getElementById('spinner');
             const btnText = document.getElementById('btnText');
-              
+
             spinner.style.display = 'inline-block';
             btnText.textContent = '加载中...';
 
@@ -695,7 +970,7 @@ const HTML_CONTENT = `
 
         function displayData(data) {
             document.getElementById('updateTime').textContent = \`最后更新: \${data.update_time} | 共 \${data.total_count} 个API Key\`;
-            
+
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
             const totalRemaining = totalAllowance - totalUsed;
@@ -880,9 +1155,7 @@ const HTML_CONTENT = `
 </html>
 `;
 
-/**
- * Fetches usage data for a single API key.
- */
+// Continue with API functions...
 async function fetchApiKeyData(id: string, key: string) {
   try {
     const response = await fetch('https://app.factory.ai/api/organization/members/chat-usage', {
@@ -902,11 +1175,11 @@ async function fetchApiKeyData(id: string, key: string) {
     if (!apiData.usage || !apiData.usage.standard) {
         return { id, key: `${key.substring(0, 4)}...`, error: 'Invalid API response structure' };
     }
-    
+
     const usageInfo = apiData.usage;
     const standardUsage = usageInfo.standard;
 
-    const formatDate = (timestamp) => {
+    const formatDate = (timestamp: number) => {
         if (!timestamp && timestamp !== 0) return 'N/A';
         try {
             return new Date(timestamp).toISOString().split('T')[0];
@@ -931,11 +1204,7 @@ async function fetchApiKeyData(id: string, key: string) {
   }
 }
 
-/**
- * Aggregates data from all API keys stored in KV.
- */
 async function getAggregatedData() {
-  // Get all API keys from KV storage
   const keyEntries = await getAllApiKeys();
 
   if (keyEntries.length === 0) {
@@ -943,7 +1212,6 @@ async function getAggregatedData() {
   }
 
   const results = await Promise.all(keyEntries.map(entry => fetchApiKeyData(entry.id, entry.key)));
-
   const validResults = results.filter(r => !r.error);
 
   const totals = validResults.reduce((acc, res) => {
@@ -957,7 +1225,6 @@ async function getAggregatedData() {
 
   const beijingTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
 
-  // 输出剩余额度大于0的key到日志
   const keysWithBalance = validResults.filter(r => {
     const remaining = (r.totalAllowance || 0) - (r.orgTotalTokensUsed || 0);
     return remaining > 0;
@@ -986,9 +1253,7 @@ async function getAggregatedData() {
   };
 }
 
-/**
- * Main HTTP request handler.
- */
+// Main HTTP request handler
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const headers = {
@@ -1003,10 +1268,64 @@ async function handler(req: Request): Promise<Response> {
     return new Response(null, { status: 204, headers });
   }
 
+  // Login endpoint
+  if (url.pathname === "/api/login" && req.method === "POST") {
+    try {
+      const body = await req.json();
+      const { password } = body;
+
+      if (password === ADMIN_PASSWORD) {
+        const sessionId = await createSession();
+        const response = new Response(JSON.stringify({ success: true }), { headers });
+
+        setCookie(response.headers, {
+          name: "session",
+          value: sessionId,
+          maxAge: 7 * 24 * 60 * 60, // 7 days
+          path: "/",
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax",
+        });
+
+        return response;
+      } else {
+        return new Response(JSON.stringify({ error: "Invalid password" }), {
+          status: 401,
+          headers,
+        });
+      }
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers,
+      });
+    }
+  }
+
+  // Show login page if password is set and not authenticated
+  if (ADMIN_PASSWORD && url.pathname === "/") {
+    const authenticated = await isAuthenticated(req);
+    if (!authenticated) {
+      return new Response(LOGIN_PAGE, {
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    }
+  }
+
   // Home page
   if (url.pathname === "/") {
     return new Response(HTML_CONTENT, {
       headers: { "Content-Type": "text/html; charset=utf-8" }
+    });
+  }
+
+  // Protected routes - require authentication
+  const authenticated = await isAuthenticated(req);
+  if (ADMIN_PASSWORD && !authenticated) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers,
     });
   }
 
@@ -1024,7 +1343,7 @@ async function handler(req: Request): Promise<Response> {
     }
   }
 
-  // Get all keys (list only IDs and names, not actual keys)
+  // Get all keys
   if (url.pathname === "/api/keys" && req.method === "GET") {
     try {
       const keys = await getAllApiKeys();
@@ -1114,5 +1433,6 @@ async function handler(req: Request): Promise<Response> {
   return new Response("Not Found", { status: 404 });
 }
 
-console.log("Server running on http://localhost:8000");
+console.log("🚀 Server running on http://localhost:8000");
+console.log(`🔐 Password Protection: ${ADMIN_PASSWORD ? 'ENABLED ✅' : 'DISABLED ⚠️'}`);
 serve(handler);
