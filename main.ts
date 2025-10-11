@@ -1482,7 +1482,7 @@ const HTML_CONTENT = `
 
             const minutes = Math.floor(remaining / 60000);
             const seconds = Math.floor((remaining % 60000) / 1000);
-            const timeText = `${minutes} 分 ${seconds} 秒后`;
+            const timeText = minutes + ' 分 ' + seconds + ' 秒后';
 
             document.getElementById('nextRefreshDisplay').textContent = timeText;
             document.getElementById('headerNextRefresh').textContent = timeText;
@@ -1516,7 +1516,7 @@ const HTML_CONTENT = `
                 startAutoRefresh();
             }
 
-            alert(\`自动刷新间隔已设置为 \${newInterval} 分钟\`);
+            alert('自动刷新间隔已设置为 ' + newInterval + ' 分钟');
         }
 
         function toggleAutoRefresh() {
