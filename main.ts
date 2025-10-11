@@ -1063,7 +1063,7 @@ const HTML_CONTENT = `
 
         function displayData(data) {
             allData = data; // 保存数据
-            document.getElementById('updateTime').textContent = `最后更新: ${data.update_time} | 共 ${data.total_count} 个API Key`;
+            document.getElementById('updateTime').textContent = \`最后更新: \${data.update_time} | 共 \${data.total_count} 个API Key\`;
 
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
@@ -1071,12 +1071,12 @@ const HTML_CONTENT = `
             const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
 
             const statsCards = document.getElementById('statsCards');
-            statsCards.innerHTML = `
-                <div class="stat-card"><div class="label">总计额度 (Total Allowance)</div><div class="value">${formatNumber(totalAllowance)}</div></div>
-                <div class="stat-card"><div class="label">已使用 (Total Used)</div><div class="value">${formatNumber(totalUsed)}</div></div>
-                <div class="stat-card"><div class="label">剩余额度 (Remaining)</div><div class="value">${formatNumber(totalRemaining)}</div></div>
-                <div class="stat-card"><div class="label">使用百分比 (Usage %)</div><div class="value">${formatPercentage(overallRatio)}</div></div>
-            `;
+            statsCards.innerHTML = \`
+                <div class="stat-card"><div class="label">总计额度 (Total Allowance)</div><div class="value">\${formatNumber(totalAllowance)}</div></div>
+                <div class="stat-card"><div class="label">已使用 (Total Used)</div><div class="value">\${formatNumber(totalUsed)}</div></div>
+                <div class="stat-card"><div class="label">剩余额度 (Remaining)</div><div class="value">\${formatNumber(totalRemaining)}</div></div>
+                <div class="stat-card"><div class="label">使用百分比 (Usage %)</div><div class="value">\${formatPercentage(overallRatio)}</div></div>
+            \`;
 
             renderTable();
         }
@@ -1095,7 +1095,7 @@ const HTML_CONTENT = `
             const totalRemaining = totalAllowance - totalUsed;
             const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
 
-            let tableHTML = `
+            let tableHTML = \`
                 <table>
                     <thead>
                         <tr>
@@ -1110,64 +1110,64 @@ const HTML_CONTENT = `
                             <th style="text-align: center;">操作</th>
                         </tr>
                     </thead>
-                    <tbody>`;
+                    <tbody>\`;
 
             // 总计行放在第一行
-            tableHTML += `
+            tableHTML += \`
                 <tr class="total-row">
                     <td colspan="4">总计 (SUM)</td>
-                    <td class="number">${formatNumber(totalAllowance)}</td>
-                    <td class="number">${formatNumber(totalUsed)}</td>
-                    <td class="number">${formatNumber(totalRemaining)}</td>
-                    <td class="number">${formatPercentage(overallRatio)}</td>
+                    <td class="number">\${formatNumber(totalAllowance)}</td>
+                    <td class="number">\${formatNumber(totalUsed)}</td>
+                    <td class="number">\${formatNumber(totalRemaining)}</td>
+                    <td class="number">\${formatPercentage(overallRatio)}</td>
                     <td></td>
-                </tr>`;
+                </tr>\`;
 
             // 数据行 - 只显示当前页
             pageData.forEach(item => {
                 if (item.error) {
-                    tableHTML += `
+                    tableHTML += \`
                         <tr>
-                            <td>${item.id}</td>
-                            <td class="key-cell" title="${item.key}">${item.key}</td>
-                            <td colspan="6" class="error-row">加载失败: ${item.error}</td>
-                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('${item.id}')">删除</button></td>
-                        </tr>`;
+                            <td>\${item.id}</td>
+                            <td class="key-cell" title="\${item.key}">\${item.key}</td>
+                            <td colspan="6" class="error-row">加载失败: \${item.error}</td>
+                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
+                        </tr>\`;
                 } else {
                     const remaining = item.totalAllowance - item.orgTotalTokensUsed;
-                    tableHTML += `
+                    tableHTML += \`
                         <tr>
-                            <td>${item.id}</td>
-                            <td class="key-cell" title="${item.key}">${item.key}</td>
-                            <td>${item.startDate}</td>
-                            <td>${item.endDate}</td>
-                            <td class="number">${formatNumber(item.totalAllowance)}</td>
-                            <td class="number">${formatNumber(item.orgTotalTokensUsed)}</td>
-                            <td class="number">${formatNumber(remaining)}</td>
-                            <td class="number">${formatPercentage(item.usedRatio)}</td>
-                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('${item.id}')">删除</button></td>
-                        </tr>`;
+                            <td>\${item.id}</td>
+                            <td class="key-cell" title="\${item.key}">\${item.key}</td>
+                            <td>\${item.startDate}</td>
+                            <td>\${item.endDate}</td>
+                            <td class="number">\${formatNumber(item.totalAllowance)}</td>
+                            <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
+                            <td class="number">\${formatNumber(remaining)}</td>
+                            <td class="number">\${formatPercentage(item.usedRatio)}</td>
+                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
+                        </tr>\`;
                 }
             });
 
-            tableHTML += `
+            tableHTML += \`
                     </tbody>
-                </table>`;
+                </table>\`;
 
             // 添加分页控件
             if (totalPages > 1) {
-                tableHTML += `<div class="pagination">`;
+                tableHTML += \`<div class="pagination">\`;
 
                 // 上一页按钮
-                tableHTML += `<button class="pagination-btn" onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>❮ 上一页</button>`;
+                tableHTML += \`<button class="pagination-btn" onclick="changePage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''}>❮ 上一页</button>\`;
 
                 // 页码信息
-                tableHTML += `<span class="pagination-info">第 ${currentPage} / ${totalPages} 页 (共 ${data.data.length} 条)</span>`;
+                tableHTML += \`<span class="pagination-info">第 \${currentPage} / \${totalPages} 页 (共 \${data.data.length} 条)</span>\`;
 
                 // 下一页按钮
-                tableHTML += `<button class="pagination-btn" onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页 ❯</button>`;
+                tableHTML += \`<button class="pagination-btn" onclick="changePage(\${currentPage + 1})" \${currentPage === totalPages ? 'disabled' : ''}>下一页 ❯</button>\`;
 
-                tableHTML += `</div>`;
+                tableHTML += \`</div>\`;
             }
 
             document.getElementById('tableContent').innerHTML = tableHTML;
