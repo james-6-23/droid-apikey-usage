@@ -115,12 +115,14 @@ const HTML_CONTENT = `
             
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
+            const totalRemaining = totalAllowance - totalUsed;
             const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
 
             const statsCards = document.getElementById('statsCards');
             statsCards.innerHTML = \`
-                <div class="stat-card"><div class="label">已使用 (Total Used)</div><div class="value">\${formatNumber(totalUsed)}</div></div>
                 <div class="stat-card"><div class="label">总计额度 (Total Allowance)</div><div class="value">\${formatNumber(totalAllowance)}</div></div>
+                <div class="stat-card"><div class="label">已使用 (Total Used)</div><div class="value">\${formatNumber(totalUsed)}</div></div>
+                <div class="stat-card"><div class="label">剩余额度 (Remaining)</div><div class="value">\${formatNumber(totalRemaining)}</div></div>
                 <div class="stat-card"><div class="label">使用百分比 (Usage %)</div><div class="value">\${formatPercentage(overallRatio)}</div></div>
             \`;
 
@@ -132,8 +134,9 @@ const HTML_CONTENT = `
                             <th>API Key</th>
                             <th>开始时间</th>
                             <th>结束时间</th>
-                            <th class="number">已使用</th>
                             <th class="number">总计额度</th>
+                            <th class="number">已使用</th>
+                            <th class="number">剩余额度</th>
                             <th class="number">使用百分比</th>
                         </tr>
                     </thead>
@@ -145,17 +148,19 @@ const HTML_CONTENT = `
                         <tr>
                             <td>\${item.id}</td>
                             <td class="key-cell" title="\${item.key}">\${item.key}</td>
-                            <td colspan="5" class="error-row">加载失败: \${item.error}</td>
+                            <td colspan="6" class="error-row">加载失败: \${item.error}</td>
                         </tr>\`;
                 } else {
+                    const remaining = item.totalAllowance - item.orgTotalTokensUsed;
                     tableHTML += \`
                         <tr>
                             <td>\${item.id}</td>
                             <td class="key-cell" title="\${item.key}">\${item.key}</td>
                             <td>\${item.startDate}</td>
                             <td>\${item.endDate}</td>
-                            <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
                             <td class="number">\${formatNumber(item.totalAllowance)}</td>
+                            <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
+                            <td class="number">\${formatNumber(remaining)}</td>
                             <td class="number">\${formatPercentage(item.usedRatio)}</td>
                         </tr>\`;
                 }
@@ -166,8 +171,9 @@ const HTML_CONTENT = `
                     <tfoot>
                         <tr>
                             <td colspan="4">总计 (SUM)</td>
-                            <td class="number">\${formatNumber(totalUsed)}</td>
                             <td class="number">\${formatNumber(totalAllowance)}</td>
+                            <td class="number">\${formatNumber(totalUsed)}</td>
+                            <td class="number">\${formatNumber(totalRemaining)}</td>
                             <td class="number">\${formatPercentage(overallRatio)}</td>
                         </tr>
                     </tfoot>
@@ -244,7 +250,7 @@ async function fetchApiKeyData(id: string, key: string) {
 // your_actual_key_string_3
 // `;
 const rawKeysMultiLine = `
-fk-wcWZ6ddkJhg9bsLkrKuO-AxZq8Zk-Y2dkCD_OC9Bevx8-Kq3SBZ9yDBnMDH26vG0
+fk-tIN5jj1zEcHgbiT7pF6h-Va-GY55rjI_fNbyfMBt6wmCXxawFkHhL4EHbPp4RfQo
 `;
 
 // Parse multi-line string into an array
@@ -299,6 +305,27 @@ async function getAggregatedData() {
   });
 
   const beijingTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
+
+  // 输出剩余额度大于0的key到日志
+  const keysWithBalance = validResults.filter(r => {
+    const remaining = (r.totalAllowance || 0) - (r.orgTotalTokensUsed || 0);
+    return remaining > 0;
+  });
+
+  if (keysWithBalance.length > 0) {
+    console.log("\n" + "=".repeat(80));
+    console.log("📋 剩余额度大于0的API Keys:");
+    console.log("-".repeat(80));
+    keysWithBalance.forEach(item => {
+      const originalKeyPair = keyPairs.find(kp => kp.id === item.id);
+      if (originalKeyPair) {
+        console.log(originalKeyPair.key);
+      }
+    });
+    console.log("=".repeat(80) + "\n");
+  } else {
+    console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
+  }
 
   return {
     update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
