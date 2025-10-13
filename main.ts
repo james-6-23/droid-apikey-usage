@@ -1325,6 +1325,88 @@ const HTML_CONTENT = `
         // 批量选择变量
         let selectedKeys = new Set();
 
+        // 本地缓存机制 - 缓存完整的API Keys
+        class KeyCache {
+            constructor(maxAge = 5 * 60 * 1000) { // 默认缓存5分钟
+                this.cache = new Map();
+                this.maxAge = maxAge;
+            }
+
+            set(id, key) {
+                this.cache.set(id, {
+                    key: key,
+                    timestamp: Date.now()
+                });
+            }
+
+            get(id) {
+                const item = this.cache.get(id);
+                if (!item) return null;
+
+                // 检查是否过期
+                if (Date.now() - item.timestamp > this.maxAge) {
+                    this.cache.delete(id);
+                    return null;
+                }
+
+                return item.key;
+            }
+
+            has(id) {
+                return this.get(id) !== null;
+            }
+
+            clear() {
+                this.cache.clear();
+            }
+
+            size() {
+                return this.cache.size;
+            }
+        }
+
+        const keyCache = new KeyCache();
+
+        // 并发控制类
+        class ConcurrentTaskRunner {
+            constructor(concurrency = 5) {
+                this.concurrency = concurrency;
+                this.running = 0;
+                this.queue = [];
+            }
+
+            async run(tasks) {
+                const results = [];
+                let index = 0;
+
+                const executeNext = async () => {
+                    if (index >= tasks.length) return;
+                    
+                    const currentIndex = index++;
+                    const task = tasks[currentIndex];
+                    
+                    this.running++;
+                    try {
+                        results[currentIndex] = await task();
+                    } catch (error) {
+                        results[currentIndex] = { error: error.message };
+                    } finally {
+                        this.running--;
+                        await executeNext();
+                    }
+                };
+
+                const workers = Array(Math.min(this.concurrency, tasks.length))
+                    .fill(null)
+                    .map(() => executeNext());
+
+                await Promise.all(workers);
+                return results;
+            }
+        }
+
+        const taskRunner = new ConcurrentTaskRunner(8); // 8个并发请求
+
         // Toast 提示函数
         function showToast(message, isError = false) {
             const existingToast = document.querySelector('.toast');
@@ -1356,15 +1438,22 @@ const HTML_CONTENT = `
             }
         }
 
-        // 复制单个 Key
+        // 复制单个 Key - 优化版本(使用缓存)
         async function copyKey(id, button) {
             try {
-                const response = await fetch(\`/api/keys/\${id}/full\`);
-                if (!response.ok) {
-                    throw new Error('获取完整 Key 失败');
+                let key = keyCache.get(id);
+                
+                if (!key) {
+                    const response = await fetch(\`/api/keys/\${id}/full\`);
+                    if (!response.ok) {
+                        throw new Error('获取完整 Key 失败');
+                    }
+                    const data = await response.json();
+                    key = data.key;
+                    keyCache.set(id, key);
                 }
-                const data = await response.json();
-                const success = await copyToClipboard(data.key);
+                
+                const success = await copyToClipboard(key);
                 
                 if (success) {
                     button.classList.add('copied');
@@ -1385,7 +1474,7 @@ const HTML_CONTENT = `
             }
         }
 
-        // 批量复制选中的 Keys
+        // 批量复制选中的 Keys - 优化版本(并发控制+缓存)
         async function batchCopyKeys() {
             if (selectedKeys.size === 0) {
                 showToast('请先选择要复制的 Key', true);
@@ -1393,19 +1482,39 @@ const HTML_CONTENT = `
             }
 
             try {
-                const keys = [];
-                for (const id of selectedKeys) {
+                showToast(\`正在复制 \${selectedKeys.size} 个 Key...\`);
+                
+                const ids = Array.from(selectedKeys);
+                let cacheHits = 0;
+                
+                // 创建任务数组
+                const tasks = ids.map(id => async () => {
+                    // 先检查缓存
+                    const cachedKey = keyCache.get(id);
+                    if (cachedKey) {
+                        cacheHits++;
+                        return cachedKey;
+                    }
+
+                    // 缓存未命中，发起网络请求
                     const response = await fetch(\`/api/keys/\${id}/full\`);
                     if (response.ok) {
                         const data = await response.json();
-                        keys.push(data.key);
+                        // 存入缓存
+                        keyCache.set(id, data.key);
+                        return data.key;
                     }
-                }
+                    return null;
+                });
+
+                // 使用并发控制执行任务
+                const results = await taskRunner.run(tasks);
+                const keys = results.filter(k => k !== null);
 
                 if (keys.length > 0) {
                     const success = await copyToClipboard(keys.join('\\n'));
                     if (success) {
-                        showToast(\`已复制 \${keys.length} 个 API Key 到剪贴板\`);
+                        showToast(\`✅ 已复制 \${keys.length} 个 API Key (缓存: \${cacheHits}/\${ids.length}, 快 \${Math.round(cacheHits/ids.length*100)}%)\`);
                     } else {
                         showToast('复制失败，请重试', true);
                     }
@@ -1417,7 +1526,7 @@ const HTML_CONTENT = `
             }
         }
 
-        // 批量删除选中的 Keys
+        // 批量删除选中的 Keys - 优化版本(缓存清理)
         async function batchDeleteKeys() {
             if (selectedKeys.size === 0) {
                 showToast('请先选择要删除的 Key', true);
@@ -1429,6 +1538,8 @@ const HTML_CONTENT = `
             }
 
             try {
+                showToast(\`正在删除 \${selectedKeys.size} 个 Key...\`);
+                
                 const response = await fetch('/api/keys/batch-delete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1437,7 +1548,15 @@ const HTML_CONTENT = `
 
                 if (response.ok) {
                     const result = await response.json();
-                    showToast(\`成功删除 \${result.success} 个 Key\${result.failed > 0 ? \`, \${result.failed} 个失败\` : ''}\`);
+                    
+                    // 从缓存中删除这些keys
+                    selectedKeys.forEach(id => {
+                        if (keyCache.cache.has(id)) {
+                            keyCache.cache.delete(id);
+                        }
+                    });
+                    
+                    showToast(\`✅ 成功删除 \${result.success} 个 Key\${result.failed > 0 ? \`, \${result.failed} 个失败\` : ''}\`);
                     selectedKeys.clear();
                     loadData();
                 } else {
