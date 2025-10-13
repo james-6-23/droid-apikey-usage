@@ -341,7 +341,7 @@ const HTML_CONTENT = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Droid API 余额监控看板</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
     <style>
         /* Apple-inspired Design System with FiraCode */
         :root {
@@ -527,10 +527,11 @@ const HTML_CONTENT = `
 
         td.number {
             text-align: right;
-            font-weight: 500;
+            font-weight: 400;
             font-variant-numeric: tabular-nums;
-            font-family: 'Fira Code', 'SF Mono', monospace;
-            letter-spacing: 0.3px;
+            font-family: 'Bebas Neue', 'Impact', sans-serif;
+            font-size: 18px;
+            letter-spacing: 0.5px;
         }
 
         td.error-row { color: var(--color-danger); }
@@ -564,6 +565,13 @@ const HTML_CONTENT = `
             border-bottom: 3px solid var(--color-primary) !important;
             font-weight: 700;
             letter-spacing: 0.3px;
+        }
+
+        .total-row td.number {
+            font-size: 20px;
+            font-family: 'Bebas Neue', 'Impact', sans-serif;
+            font-weight: 400;
+            letter-spacing: 0.8px;
         }
 
         /* 按钮组容器 */
