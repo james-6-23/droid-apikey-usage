@@ -527,11 +527,11 @@ const HTML_CONTENT = `
 
         td.number {
             text-align: right;
-            font-weight: 400;
+            font-weight: 500;
             font-variant-numeric: tabular-nums;
-            font-family: 'Bebas Neue', 'Impact', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', system-ui, sans-serif;
             font-size: 18px;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
         }
 
         td.error-row { color: var(--color-danger); }
@@ -569,9 +569,9 @@ const HTML_CONTENT = `
 
         .total-row td.number {
             font-size: 20px;
-            font-family: 'Bebas Neue', 'Impact', sans-serif;
-            font-weight: 400;
-            letter-spacing: 0.8px;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', system-ui, sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.3px;
         }
 
         /* 按钮组容器 */
@@ -580,6 +580,16 @@ const HTML_CONTENT = `
             gap: 8px;
             justify-content: center;
             align-items: center;
+        }
+
+        /* 按钮图标样式 */
+        .btn-icon {
+            width: 16px;
+            height: 16px;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 4px;
+            filter: brightness(0) invert(1);
         }
 
         /* 复制按钮样式 */
@@ -1355,12 +1365,12 @@ const HTML_CONTENT = `
                 
                 if (success) {
                     button.classList.add('copied');
-                    button.innerHTML = '<span>✓</span> 已复制';
+                    button.innerHTML = '<span style="font-size: 16px;">✓</span> 已复制';
                     showToast('API Key 已复制到剪贴板');
                     
                     setTimeout(() => {
                         button.classList.remove('copied');
-                        button.innerHTML = '<span>📋</span> 复制';
+                        button.innerHTML = '<img src="https://images.icon-icons.com/4026/PNG/512/copy_icon_256034.png" class="btn-icon" alt="copy"> 复制';
                     }, 2000);
                 } else {
                     showToast('复制失败，请重试', true);
@@ -1637,10 +1647,10 @@ const HTML_CONTENT = `
                             <td style="text-align: center;">
                                 <div class="action-buttons">
                                     <button class="table-copy-btn" onclick="copyKey('\${item.id}', this)">
-                                        <span>📋</span> 复制
+                                        <img src="https://images.icon-icons.com/4026/PNG/512/copy_icon_256034.png" class="btn-icon" alt="copy"> 复制
                                     </button>
                                     <button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">
-                                        <span>🗑️</span> 删除
+                                        <img src="https://images.icon-icons.com/4026/PNG/96/remove_delete_trash_icon_255976.png" class="btn-icon" alt="delete"> 删除
                                     </button>
                                 </div>
                             </td>
