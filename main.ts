@@ -91,16 +91,29 @@ async function deleteApiKey(id: string): Promise<void> {
   await kv.delete(["apikeys", id]);
 }
 
-async function batchImportKeys(keys: string[]): Promise<{ success: number; failed: number }> {
+async function batchImportKeys(keys: string[]): Promise<{ success: number; failed: number; duplicates: number }> {
   let success = 0;
   let failed = 0;
+  let duplicates = 0;
+
+  // 获取所有现有的API Keys
+  const existingKeys = await getAllApiKeys();
+  const existingKeySet = new Set(existingKeys.map(k => k.key));
 
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i].trim();
     if (key.length > 0) {
       try {
+        // 检查是否已存在
+        if (existingKeySet.has(key)) {
+          duplicates++;
+          console.log(`Skipped duplicate key: ${key.substring(0, 10)}...`);
+          continue;
+        }
+        
         const id = `key-${Date.now()}-${i}`;
         await saveApiKey(id, key);
+        existingKeySet.add(key); // 添加到集合中防止本批次内重复
         success++;
       } catch (error) {
         failed++;
@@ -109,7 +122,7 @@ async function batchImportKeys(keys: string[]): Promise<{ success: number; faile
     }
   }
 
-  return { success, failed };
+  return { success, failed, duplicates };
 }
 
 async function batchDeleteKeys(ids: string[]): Promise<{ success: number; failed: number }> {
@@ -1982,7 +1995,15 @@ const HTML_CONTENT = `
 
                 if (response.ok) {
                     result.className = 'import-result success';
-                    result.textContent = \`成功导入 \${data.success} 个密钥\${data.failed > 0 ? \`, \${data.failed} 个失败\` : ''}\`;
+                    let message = \`✅ 成功添加 \${data.success} 个\`;
+                    if (data.duplicates > 0) {
+                        message += \`, 忽略 \${data.duplicates} 个重复\`;
+                    }
+                    if (data.failed > 0) {
+                        message += \`, \${data.failed} 个失败\`;
+                    }
+                    result.textContent = message;
+                    showToast(message);
                     textarea.value = '';
                     // 关闭弹窗并刷新主页面数据
                     setTimeout(() => {
