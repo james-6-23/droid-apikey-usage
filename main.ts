@@ -112,6 +112,23 @@ async function batchImportKeys(keys: string[]): Promise<{ success: number; faile
   return { success, failed };
 }
 
+async function batchDeleteKeys(ids: string[]): Promise<{ success: number; failed: number }> {
+  let success = 0;
+  let failed = 0;
+
+  for (const id of ids) {
+    try {
+      await deleteApiKey(id);
+      success++;
+    } catch (error) {
+      failed++;
+      console.error(`Failed to delete key ${id}:`, error);
+    }
+  }
+
+  return { success, failed };
+}
+
 // Login Page HTML
 const LOGIN_PAGE = `
 <!DOCTYPE html>
@@ -485,15 +502,16 @@ const HTML_CONTENT = `
         th.number { text-align: right; }
 
         /* 调整列宽 */
-        th:nth-child(1) { width: 5%; } /* ID */
-        th:nth-child(2) { width: 10%; } /* API Key */
-        th:nth-child(3) { width: 10%; } /* 开始时间 */
-        th:nth-child(4) { width: 10%; } /* 结束时间 */
-        th:nth-child(5) { width: 13%; } /* 总计额度 */
-        th:nth-child(6) { width: 13%; } /* 已使用 */
-        th:nth-child(7) { width: 13%; } /* 剩余额度 */
-        th:nth-child(8) { width: 11%; } /* 使用百分比 */
-        th:nth-child(9) { width: 8%; } /* 操作 */
+        th:nth-child(1) { width: 50px; } /* 复选框 */
+        th:nth-child(2) { width: 5%; } /* ID */
+        th:nth-child(3) { width: 9%; } /* API Key */
+        th:nth-child(4) { width: 9%; } /* 开始时间 */
+        th:nth-child(5) { width: 9%; } /* 结束时间 */
+        th:nth-child(6) { width: 12%; } /* 总计额度 */
+        th:nth-child(7) { width: 12%; } /* 已使用 */
+        th:nth-child(8) { width: 12%; } /* 剩余额度 */
+        th:nth-child(9) { width: 10%; } /* 使用百分比 */
+        th:nth-child(10) { width: 10%; } /* 操作 */
 
         td {
             padding: var(--spacing-md);
@@ -534,6 +552,34 @@ const HTML_CONTENT = `
             border-bottom: 2px solid var(--color-primary) !important;
         }
 
+        /* 复制按钮样式 */
+        .table-copy-btn {
+            background: var(--color-primary);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+            margin-right: 6px;
+        }
+
+        .table-copy-btn:hover {
+            background: #0056D2;
+            transform: scale(1.05);
+        }
+
+        .table-copy-btn:active {
+            transform: scale(0.98);
+        }
+
+        .table-copy-btn.copied {
+            background: var(--color-success);
+        }
+
         /* 删除按钮样式 */
         .table-delete-btn {
             background: var(--color-danger);
@@ -555,6 +601,120 @@ const HTML_CONTENT = `
 
         .table-delete-btn:active {
             transform: scale(0.98);
+        }
+
+        /* 批量操作相关样式 */
+        .checkbox-cell {
+            width: 50px;
+            text-align: center;
+        }
+
+        .batch-toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 200;
+            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+            color: white;
+            padding: var(--spacing-md) var(--spacing-lg);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-md);
+            justify-content: space-between;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+            border-radius: var(--radius-md);
+            margin-bottom: var(--spacing-md);
+        }
+
+        .batch-toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-md);
+        }
+
+        .batch-toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+
+        .batch-count {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .batch-btn {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: var(--radius-sm);
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+
+        .batch-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .batch-btn.danger {
+            background: var(--color-danger);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .batch-btn.danger:hover {
+            background: #D32F2F;
+        }
+
+        /* Toast 提示样式 */
+        .toast {
+            position: fixed;
+            top: var(--spacing-xl);
+            right: var(--spacing-xl);
+            background: var(--color-surface);
+            color: var(--color-text-primary);
+            padding: var(--spacing-md) var(--spacing-lg);
+            border-radius: var(--radius-md);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            z-index: 10000;
+            animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s;
+            border-left: 4px solid var(--color-success);
+        }
+
+        .toast.error {
+            border-left-color: var(--color-danger);
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        .toast-icon {
+            font-size: 20px;
+        }
+
+        .toast-message {
+            font-size: 15px;
+            font-weight: 500;
         }
 
         .key-cell {
@@ -1083,6 +1243,193 @@ const HTML_CONTENT = `
         let nextRefreshTime = null;
         let countdownInterval = null;
 
+        // 批量选择变量
+        let selectedKeys = new Set();
+
+        // Toast 提示函数
+        function showToast(message, isError = false) {
+            const existingToast = document.querySelector('.toast');
+            if (existingToast) {
+                existingToast.remove();
+            }
+
+            const toast = document.createElement('div');
+            toast.className = 'toast' + (isError ? ' error' : '');
+            toast.innerHTML = \`
+                <span class="toast-icon">\${isError ? '❌' : '✅'}</span>
+                <span class="toast-message">\${message}</span>
+            \`;
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+
+        // 复制到剪贴板函数
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (err) {
+                console.error('复制失败:', err);
+                return false;
+            }
+        }
+
+        // 复制单个 Key
+        async function copyKey(id, button) {
+            try {
+                const response = await fetch(\`/api/keys/\${id}/full\`);
+                if (!response.ok) {
+                    throw new Error('获取完整 Key 失败');
+                }
+                const data = await response.json();
+                const success = await copyToClipboard(data.key);
+                
+                if (success) {
+                    button.classList.add('copied');
+                    button.textContent = '✓ 已复制';
+                    showToast('API Key 已复制到剪贴板');
+                    
+                    setTimeout(() => {
+                        button.classList.remove('copied');
+                        button.textContent = '复制';
+                    }, 2000);
+                } else {
+                    showToast('复制失败，请重试', true);
+                }
+            } catch (error) {
+                showToast('复制失败: ' + error.message, true);
+            }
+        }
+
+        // 批量复制选中的 Keys
+        async function batchCopyKeys() {
+            if (selectedKeys.size === 0) {
+                showToast('请先选择要复制的 Key', true);
+                return;
+            }
+
+            try {
+                const keys = [];
+                for (const id of selectedKeys) {
+                    const response = await fetch(\`/api/keys/\${id}/full\`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        keys.push(data.key);
+                    }
+                }
+
+                if (keys.length > 0) {
+                    const success = await copyToClipboard(keys.join('\\n'));
+                    if (success) {
+                        showToast(\`已复制 \${keys.length} 个 API Key 到剪贴板\`);
+                    } else {
+                        showToast('复制失败，请重试', true);
+                    }
+                } else {
+                    showToast('没有可复制的 Key', true);
+                }
+            } catch (error) {
+                showToast('批量复制失败: ' + error.message, true);
+            }
+        }
+
+        // 批量删除选中的 Keys
+        async function batchDeleteKeys() {
+            if (selectedKeys.size === 0) {
+                showToast('请先选择要删除的 Key', true);
+                return;
+            }
+
+            if (!confirm(\`确定要删除 \${selectedKeys.size} 个 API Key 吗？此操作不可恢复！\`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/keys/batch-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: Array.from(selectedKeys) })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    showToast(\`成功删除 \${result.success} 个 Key\${result.failed > 0 ? \`, \${result.failed} 个失败\` : ''}\`);
+                    selectedKeys.clear();
+                    loadData();
+                } else {
+                    const data = await response.json();
+                    showToast('批量删除失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showToast('批量删除失败: ' + error.message, true);
+            }
+        }
+
+        // 切换选中状态
+        function toggleSelection(id) {
+            if (selectedKeys.has(id)) {
+                selectedKeys.delete(id);
+            } else {
+                selectedKeys.add(id);
+            }
+            updateBatchToolbar();
+        }
+
+        // 全选/取消全选
+        function toggleSelectAll() {
+            if (!allData) return;
+
+            const allIds = allData.data.map(item => item.id);
+            
+            if (selectedKeys.size === allIds.length) {
+                selectedKeys.clear();
+            } else {
+                allIds.forEach(id => selectedKeys.add(id));
+            }
+            
+            renderTable();
+        }
+
+        // 取消所有选择
+        function clearSelection() {
+            selectedKeys.clear();
+            renderTable();
+        }
+
+        // 更新批量操作工具栏
+        function updateBatchToolbar() {
+            const existingToolbar = document.querySelector('.batch-toolbar');
+            
+            if (selectedKeys.size > 0) {
+                if (!existingToolbar) {
+                    const toolbar = document.createElement('div');
+                    toolbar.className = 'batch-toolbar';
+                    toolbar.innerHTML = \`
+                        <div class="batch-toolbar-left">
+                            <span class="batch-count">已选中 <strong>\${selectedKeys.size}</strong> 个 Key</span>
+                        </div>
+                        <div class="batch-toolbar-right">
+                            <button class="batch-btn" onclick="batchCopyKeys()">📋 批量复制</button>
+                            <button class="batch-btn danger" onclick="batchDeleteKeys()">🗑️ 批量删除</button>
+                            <button class="batch-btn" onclick="clearSelection()">✕ 取消选择</button>
+                        </div>
+                    \`;
+                    
+                    const tableContainer = document.querySelector('.table-container');
+                    tableContainer.insertBefore(toolbar, tableContainer.firstChild);
+                } else {
+                    existingToolbar.querySelector('.batch-count').innerHTML = \`已选中 <strong>\${selectedKeys.size}</strong> 个 Key\`;
+                }
+            } else {
+                if (existingToolbar) {
+                    existingToolbar.remove();
+                }
+            }
+        }
+
         function formatNumber(num) {
             if (num === undefined || num === null) {
                 return '0';
@@ -1163,10 +1510,14 @@ const HTML_CONTENT = `
             const totalRemaining = totalAllowance - totalUsed;
             const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
 
+            const allIds = data.data.map(item => item.id);
+            const allSelected = allIds.length > 0 && allIds.every(id => selectedKeys.has(id));
+
             let tableHTML = \`
                 <table>
                     <thead>
                         <tr>
+                            <th class="checkbox-cell"><input type="checkbox" \${allSelected ? 'checked' : ''} onchange="toggleSelectAll()" title="全选/取消全选"></th>
                             <th>ID</th>
                             <th>API Key</th>
                             <th>开始时间</th>
@@ -1183,6 +1534,7 @@ const HTML_CONTENT = `
             // 总计行放在第一行
             tableHTML += \`
                 <tr class="total-row">
+                    <td class="checkbox-cell"></td>
                     <td colspan="4">总计 (SUM)</td>
                     <td class="number">\${formatNumber(totalAllowance)}</td>
                     <td class="number">\${formatNumber(totalUsed)}</td>
@@ -1193,9 +1545,11 @@ const HTML_CONTENT = `
 
             // 数据行 - 只显示当前页
             pageData.forEach(item => {
+                const isChecked = selectedKeys.has(item.id);
                 if (item.error) {
                     tableHTML += \`
                         <tr>
+                            <td class="checkbox-cell"><input type="checkbox" \${isChecked ? 'checked' : ''} onchange="toggleSelection('\${item.id}'); renderTable();"></td>
                             <td>\${item.id}</td>
                             <td class="key-cell" title="\${item.key}">\${item.key}</td>
                             <td colspan="6" class="error-row">加载失败: \${item.error}</td>
@@ -1205,6 +1559,7 @@ const HTML_CONTENT = `
                     const remaining = item.totalAllowance - item.orgTotalTokensUsed;
                     tableHTML += \`
                         <tr>
+                            <td class="checkbox-cell"><input type="checkbox" \${isChecked ? 'checked' : ''} onchange="toggleSelection('\${item.id}'); renderTable();"></td>
                             <td>\${item.id}</td>
                             <td class="key-cell" title="\${item.key}">\${item.key}</td>
                             <td>\${item.startDate}</td>
@@ -1213,7 +1568,10 @@ const HTML_CONTENT = `
                             <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
                             <td class="number">\${formatNumber(remaining)}</td>
                             <td class="number">\${formatPercentage(item.usedRatio)}</td>
-                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
+                            <td style="text-align: center;">
+                                <button class="table-copy-btn" onclick="copyKey('\${item.id}', this)">复制</button>
+                                <button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button>
+                            </td>
                         </tr>\`;
                 }
             });
@@ -1239,6 +1597,7 @@ const HTML_CONTENT = `
             }
 
             document.getElementById('tableContent').innerHTML = tableHTML;
+            updateBatchToolbar();
         }
 
         function changePage(page) {
@@ -1766,11 +2125,63 @@ async function handler(req: Request): Promise<Response> {
     }
   }
 
+  // Get full API key by ID
+  if (url.pathname.match(/^\/api\/keys\/[^\/]+\/full$/) && req.method === "GET") {
+    try {
+      const parts = url.pathname.split("/");
+      const id = parts[3];
+      if (!id) {
+        return new Response(JSON.stringify({ error: "Key ID required" }), {
+          status: 400,
+          headers,
+        });
+      }
+
+      const keyEntry = await getApiKey(id);
+      if (!keyEntry) {
+        return new Response(JSON.stringify({ error: "Key not found" }), {
+          status: 404,
+          headers,
+        });
+      }
+
+      return new Response(JSON.stringify({ id: keyEntry.id, key: keyEntry.key }), { headers });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers,
+      });
+    }
+  }
+
+  // Batch delete keys
+  if (url.pathname === "/api/keys/batch-delete" && req.method === "POST") {
+    try {
+      const body = await req.json();
+      const ids = body.ids as string[];
+
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return new Response(JSON.stringify({ error: "Invalid request: 'ids' must be a non-empty array" }), {
+          status: 400,
+          headers,
+        });
+      }
+
+      const result = await batchDeleteKeys(ids);
+      return new Response(JSON.stringify(result), { headers });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers,
+      });
+    }
+  }
+
   // Delete a key
   if (url.pathname.startsWith("/api/keys/") && req.method === "DELETE") {
     try {
       const id = url.pathname.split("/").pop();
-      if (!id) {
+      if (!id || id === "batch-delete") {
         return new Response(JSON.stringify({ error: "Key ID required" }), {
           status: 400,
           headers,
