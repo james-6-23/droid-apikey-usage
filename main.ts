@@ -1325,11 +1325,47 @@ const HTML_CONTENT = `
         // 批量选择变量
         let selectedKeys = new Set();
 
-        // 本地缓存机制 - 缓存完整的API Keys
+        // 本地缓存机制 - 使用localStorage持久化缓存
         class KeyCache {
-            constructor(maxAge = 5 * 60 * 1000) { // 默认缓存5分钟
+            constructor(maxAge = 24 * 60 * 60 * 1000) { // 默认缓存24小时
                 this.cache = new Map();
                 this.maxAge = maxAge;
+                this.storageKey = 'apikey_cache';
+                this.loadFromStorage();
+            }
+
+            // 从localStorage加载缓存
+            loadFromStorage() {
+                try {
+                    const stored = localStorage.getItem(this.storageKey);
+                    if (stored) {
+                        const data = JSON.parse(stored);
+                        const now = Date.now();
+                        
+                        // 只加载未过期的数据
+                        for (const [id, item] of Object.entries(data)) {
+                            if (now - item.timestamp < this.maxAge) {
+                                this.cache.set(id, item);
+                            }
+                        }
+                        console.log(\`✅ 从本地缓存加载了 \${this.cache.size} 个 API Key\`);
+                    }
+                } catch (error) {
+                    console.error('加载缓存失败:', error);
+                }
+            }
+
+            // 保存到localStorage
+            saveToStorage() {
+                try {
+                    const data = {};
+                    for (const [id, item] of this.cache.entries()) {
+                        data[id] = item;
+                    }
+                    localStorage.setItem(this.storageKey, JSON.stringify(data));
+                } catch (error) {
+                    console.error('保存缓存失败:', error);
+                }
             }
 
             set(id, key) {
@@ -1337,6 +1373,7 @@ const HTML_CONTENT = `
                     key: key,
                     timestamp: Date.now()
                 });
+                this.saveToStorage();
             }
 
             get(id) {
@@ -1346,6 +1383,7 @@ const HTML_CONTENT = `
                 // 检查是否过期
                 if (Date.now() - item.timestamp > this.maxAge) {
                     this.cache.delete(id);
+                    this.saveToStorage();
                     return null;
                 }
 
@@ -1358,10 +1396,22 @@ const HTML_CONTENT = `
 
             clear() {
                 this.cache.clear();
+                localStorage.removeItem(this.storageKey);
             }
 
             size() {
                 return this.cache.size;
+            }
+
+            // 批量添加
+            batchSet(entries) {
+                for (const [id, key] of entries) {
+                    this.cache.set(id, {
+                        key: key,
+                        timestamp: Date.now()
+                    });
+                }
+                this.saveToStorage();
             }
         }
 
@@ -1485,14 +1535,12 @@ const HTML_CONTENT = `
                 showToast(\`正在复制 \${selectedKeys.size} 个 Key...\`);
                 
                 const ids = Array.from(selectedKeys);
-                let cacheHits = 0;
                 
                 // 创建任务数组
                 const tasks = ids.map(id => async () => {
                     // 先检查缓存
                     const cachedKey = keyCache.get(id);
                     if (cachedKey) {
-                        cacheHits++;
                         return cachedKey;
                     }
 
@@ -1514,7 +1562,7 @@ const HTML_CONTENT = `
                 if (keys.length > 0) {
                     const success = await copyToClipboard(keys.join('\\n'));
                     if (success) {
-                        showToast(\`✅ 已复制 \${keys.length} 个 API Key (缓存: \${cacheHits}/\${ids.length}, 快 \${Math.round(cacheHits/ids.length*100)}%)\`);
+                        showToast(\`✅ 已复制 \${keys.length} 个 API Key\`);
                     } else {
                         showToast('复制失败，请重试', true);
                     }
@@ -1663,6 +1711,8 @@ const HTML_CONTENT = `
                         throw new Error(data.error);
                     }
                     displayData(data);
+                    // 预加载所有keys到缓存
+                    preloadKeysToCache(data.data);
                     // 重置自动刷新计时器
                     resetAutoRefresh();
                 })
@@ -1674,6 +1724,44 @@ const HTML_CONTENT = `
                     spinner.style.display = 'none';
                     btnText.textContent = '🔄 刷新数据';
                 });
+        }
+
+        // 预加载所有keys到缓存
+        async function preloadKeysToCache(dataItems) {
+            const uncachedIds = dataItems
+                .filter(item => !item.error && !keyCache.has(item.id))
+                .map(item => item.id);
+
+            if (uncachedIds.length === 0) {
+                console.log('✅ 所有 Key 已在缓存中');
+                return;
+            }
+
+            console.log(\`🔄 预加载 \${uncachedIds.length} 个新 Key 到缓存...\`);
+
+            // 创建任务数组
+            const tasks = uncachedIds.map(id => async () => {
+                try {
+                    const response = await fetch(\`/api/keys/\${id}/full\`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        return [id, data.key];
+                    }
+                } catch (error) {
+                    console.error(\`预加载 key \${id} 失败:\`, error);
+                }
+                return null;
+            });
+
+            // 使用并发控制执行
+            const results = await taskRunner.run(tasks);
+            const validEntries = results.filter(r => r !== null);
+
+            // 批量写入缓存
+            if (validEntries.length > 0) {
+                keyCache.batchSet(validEntries);
+                console.log(\`✅ 成功预加载 \${validEntries.length} 个 Key 到本地缓存\`);
+            }
         }
 
         function displayData(data) {
