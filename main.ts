@@ -584,11 +584,10 @@ const HTML_CONTENT = `
 
         /* 按钮图标样式 */
         .btn-icon {
-            width: 16px;
-            height: 16px;
+            width: 18px;
+            height: 18px;
             display: inline-block;
             vertical-align: middle;
-            margin-right: 4px;
             filter: brightness(0) invert(1);
         }
 
@@ -598,7 +597,7 @@ const HTML_CONTENT = `
             color: white;
             border: none;
             border-radius: 8px;
-            padding: 8px 14px;
+            padding: 10px;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
@@ -607,7 +606,9 @@ const HTML_CONTENT = `
             box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
             display: inline-flex;
             align-items: center;
-            gap: 4px;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
         }
 
         .table-copy-btn:hover {
@@ -631,7 +632,7 @@ const HTML_CONTENT = `
             color: white;
             border: none;
             border-radius: 8px;
-            padding: 8px 14px;
+            padding: 10px;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
@@ -640,7 +641,9 @@ const HTML_CONTENT = `
             box-shadow: 0 2px 6px rgba(255, 59, 48, 0.2);
             display: inline-flex;
             align-items: center;
-            gap: 4px;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
         }
 
         .table-delete-btn:hover {
@@ -1365,12 +1368,14 @@ const HTML_CONTENT = `
                 
                 if (success) {
                     button.classList.add('copied');
-                    button.innerHTML = '<span style="font-size: 16px;">✓</span> 已复制';
+                    button.innerHTML = '<span style="font-size: 18px;">✓</span>';
+                    button.title = '已复制';
                     showToast('API Key 已复制到剪贴板');
                     
                     setTimeout(() => {
                         button.classList.remove('copied');
-                        button.innerHTML = '<img src="https://images.icon-icons.com/4026/PNG/512/copy_icon_256034.png" class="btn-icon" alt="copy"> 复制';
+                        button.innerHTML = '<img src="https://images.icon-icons.com/4026/PNG/512/copy_icon_256034.png" class="btn-icon" alt="copy">';
+                        button.title = '复制 API Key';
                     }, 2000);
                 } else {
                     showToast('复制失败，请重试', true);
@@ -1646,11 +1651,11 @@ const HTML_CONTENT = `
                             <td class="number">\${formatPercentage(item.usedRatio)}</td>
                             <td style="text-align: center;">
                                 <div class="action-buttons">
-                                    <button class="table-copy-btn" onclick="copyKey('\${item.id}', this)">
-                                        <img src="https://images.icon-icons.com/4026/PNG/512/copy_icon_256034.png" class="btn-icon" alt="copy"> 复制
+                                    <button class="table-copy-btn" onclick="copyKey('\${item.id}', this)" title="复制 API Key">
+                                        <img src="https://images.icon-icons.com/4026/PNG/512/copy_icon_256034.png" class="btn-icon" alt="copy">
                                     </button>
-                                    <button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">
-                                        <img src="https://images.icon-icons.com/4026/PNG/96/remove_delete_trash_icon_255976.png" class="btn-icon" alt="delete"> 删除
+                                    <button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')" title="删除">
+                                        <img src="https://images.icon-icons.com/4026/PNG/96/remove_delete_trash_icon_255976.png" class="btn-icon" alt="delete">
                                     </button>
                                 </div>
                             </td>
