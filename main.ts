@@ -514,6 +514,42 @@ const HTML_CONTENT = `
             overflow-x: visible;
         }
 
+        .table-controls {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            flex-wrap: wrap;
+        }
+
+        .page-size-control {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            font-size: 14px;
+            color: var(--color-text-secondary);
+        }
+
+        .page-size-select {
+            padding: 8px 12px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            background: var(--color-surface);
+            color: var(--color-text);
+            font-size: 14px;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            transition: var(--transition);
+        }
+
+        .page-size-select:focus {
+            outline: none;
+            border-color: var(--color-primary);
+            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2);
+        }
+
         table {
             width: 100%;
             border-collapse: separate;
@@ -1336,6 +1372,17 @@ const HTML_CONTENT = `
         <div class="stats-cards" id="statsCards"></div>
 
         <div class="table-container">
+            <div class="table-controls">
+                <div class="page-size-control">
+                    <span>每页显示</span>
+                    <select id="pageSizeSelect" class="page-size-select" onchange="changePageSize(this.value)">
+                        <option value="10">10 条</option>
+                        <option value="30">30 条</option>
+                        <option value="100">100 条</option>
+                        <option value="all">全部</option>
+                    </select>
+                </div>
+            </div>
             <div id="tableContent">
                 <div class="loading">正在加载数据...</div>
             </div>
@@ -1354,8 +1401,9 @@ const HTML_CONTENT = `
 
     <script>
         // 分页变量
+        const PAGE_SIZE_STORAGE_KEY = 'tablePageSize';
         let currentPage = 1;
-        let itemsPerPage = 10;
+        let itemsPerPage = getStoredPageSize() || 10; // 默认 10 条 / 页
         let allData = null;
 
         // 自动刷新变量
@@ -1366,6 +1414,22 @@ const HTML_CONTENT = `
 
         // 批量选择变量
         let selectedKeys = new Set();
+
+        function getStoredPageSize() {
+            try {
+                const stored = localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
+                if (stored === 'all') {
+                    return Infinity;
+                }
+
+                const parsed = parseInt(stored);
+                if (!Number.isNaN(parsed) && parsed > 0) {
+                    return parsed;
+                }
+            } catch (error) {
+                console.error('读取分页设置失败:', error);
+            }
+        }
 
         // 本地缓存机制 - 使用localStorage持久化缓存
         class KeyCache {
@@ -1709,7 +1773,12 @@ const HTML_CONTENT = `
                     \`;
                     
                     const tableContainer = document.querySelector('.table-container');
-                    tableContainer.insertBefore(toolbar, tableContainer.firstChild);
+                    const controls = tableContainer.querySelector('.table-controls');
+                    if (controls) {
+                        tableContainer.insertBefore(toolbar, controls.nextSibling);
+                    } else {
+                        tableContainer.insertBefore(toolbar, tableContainer.firstChild);
+                    }
                 } else {
                     existingToolbar.querySelector('.batch-count').innerHTML = \`已选中 <strong>\${selectedKeys.size}</strong> 个 Key\`;
                 }
@@ -1835,9 +1904,16 @@ const HTML_CONTENT = `
             if (!allData) return;
 
             const data = allData;
-            const totalPages = Math.ceil(data.data.length / itemsPerPage);
-            const startIndex = (currentPage - 1) * itemsPerPage;
-            const endIndex = startIndex + itemsPerPage;
+            const totalItems = data.data.length;
+            const isUnlimited = itemsPerPage === Infinity;
+            const totalPages = isUnlimited ? 1 : Math.max(1, Math.ceil(totalItems / itemsPerPage));
+
+            if (currentPage > totalPages) {
+                currentPage = totalPages;
+            }
+
+            const startIndex = isUnlimited ? 0 : (currentPage - 1) * itemsPerPage;
+            const endIndex = isUnlimited ? totalItems : startIndex + itemsPerPage;
             const pageData = data.data.slice(startIndex, endIndex);
 
             const totalAllowance = data.totals.total_totalAllowance;
@@ -1922,7 +1998,7 @@ const HTML_CONTENT = `
                 </table>\`;
 
             // 添加分页控件
-            if (totalPages > 1) {
+            if (totalPages > 1 && !isUnlimited) {
                 tableHTML += \`<div class="pagination">\`;
 
                 // 上一页按钮
@@ -1938,18 +2014,51 @@ const HTML_CONTENT = `
             }
 
             document.getElementById('tableContent').innerHTML = tableHTML;
+            const pageSizeSelect = document.getElementById('pageSizeSelect');
+            if (pageSizeSelect) {
+                const selectValue = isUnlimited ? 'all' : String(itemsPerPage);
+                if (pageSizeSelect.value !== selectValue) {
+                    pageSizeSelect.value = selectValue;
+                }
+            }
             updateBatchToolbar();
         }
 
         function changePage(page) {
             if (!allData) return;
-            const totalPages = Math.ceil(allData.data.length / itemsPerPage);
+
+            if (itemsPerPage === Infinity) {
+                currentPage = 1;
+                renderTable();
+                return;
+            }
+
+            const totalPages = Math.max(1, Math.ceil(allData.data.length / itemsPerPage));
             if (page < 1 || page > totalPages) return;
 
             currentPage = page;
             renderTable();
 
             // 滚动到表格顶部
+            document.querySelector('.table-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function changePageSize(value) {
+            const newSize = value === 'all' ? Infinity : parseInt(value, 10);
+
+            if (Number.isNaN(newSize)) {
+                return;
+            }
+
+            itemsPerPage = newSize;
+            try {
+                localStorage.setItem(PAGE_SIZE_STORAGE_KEY, value === 'all' ? 'all' : String(newSize));
+            } catch (error) {
+                console.error('保存分页设置失败:', error);
+            }
+            currentPage = 1;
+            renderTable();
+
             document.querySelector('.table-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
@@ -2236,6 +2345,13 @@ const HTML_CONTENT = `
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            const pageSizeSelect = document.getElementById('pageSizeSelect');
+            if (pageSizeSelect) {
+                const selectValue = itemsPerPage === Infinity ? 'all' : String(itemsPerPage);
+                if (pageSizeSelect.value !== selectValue) {
+                    pageSizeSelect.value = selectValue;
+                }
+            }
             loadData();
             initAutoRefresh();
         });
