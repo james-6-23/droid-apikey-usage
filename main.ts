@@ -440,6 +440,8 @@ const HTML_CONTENT = `
             text-align: center;
             border: 1px solid var(--color-border);
             transition: var(--transition);
+            position: relative;
+            overflow: hidden;
         }
 
         .stat-card:hover {
@@ -454,6 +456,8 @@ const HTML_CONTENT = `
             font-weight: 500;
             letter-spacing: 0.3px;
             text-transform: uppercase;
+            position: relative;
+            z-index: 2;
         }
 
         .stat-card .value {
@@ -465,6 +469,31 @@ const HTML_CONTENT = `
             background-clip: text;
             font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', sans-serif;
             font-variant-numeric: tabular-nums;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* 进度条背景 */
+        .stat-card .progress-background {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(0, 122, 255, 0.15) 0%, rgba(88, 86, 214, 0.15) 100%);
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1;
+            border-radius: var(--radius-lg);
+        }
+
+        .stat-card .progress-background::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(180deg, transparent 0%, rgba(0, 122, 255, 0.6) 50%, transparent 100%);
+            box-shadow: 0 0 8px rgba(0, 122, 255, 0.4);
         }
 
         .table-container {
@@ -491,7 +520,7 @@ const HTML_CONTENT = `
         }
 
         th {
-            padding: 18px var(--spacing-md);
+            padding: 22px var(--spacing-md);
             text-align: left;
             font-weight: 700;
             font-size: 13px;
@@ -516,7 +545,7 @@ const HTML_CONTENT = `
         th:nth-child(10) { width: 10%; } /* 操作 */
 
         td {
-            padding: 18px var(--spacing-md);
+            padding: 22px var(--spacing-md);
             border-bottom: 1px solid var(--color-border);
             font-size: 15px;
             overflow: hidden;
@@ -559,7 +588,7 @@ const HTML_CONTENT = `
         }
 
         .total-row td {
-            padding: 20px var(--spacing-md);
+            padding: 24px var(--spacing-md);
             font-size: 16px;
             color: var(--color-primary);
             border-bottom: 3px solid var(--color-primary) !important;
@@ -660,7 +689,7 @@ const HTML_CONTENT = `
         .checkbox-cell {
             width: 50px;
             text-align: center;
-            padding: 18px 12px !important;
+            padding: 22px 12px !important;
         }
 
         .checkbox-cell input[type="checkbox"] {
@@ -779,7 +808,7 @@ const HTML_CONTENT = `
         }
 
         .key-cell {
-            font-size: 14px;
+            font-size: 20px;
             color: var(--color-text-secondary);
             max-width: 200px;
             overflow: hidden;
@@ -788,19 +817,19 @@ const HTML_CONTENT = `
             font-family: 'Fira Code', monospace;
             font-weight: 500;
             background: rgba(0, 0, 0, 0.02);
-            padding: 6px 10px !important;
+            padding: 8px 12px !important;
             border-radius: 6px;
         }
 
         .id-cell {
-            font-size: 13px;
+            font-size: 20px;
             color: var(--color-text-secondary);
             font-weight: 500;
             font-family: 'Fira Code', monospace;
         }
 
         .date-cell {
-            font-size: 14px;
+            font-size: 20px;
             color: var(--color-text-primary);
             font-weight: 400;
         }
@@ -1774,11 +1803,16 @@ const HTML_CONTENT = `
             const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
 
             const statsCards = document.getElementById('statsCards');
+            const progressWidth = Math.min(overallRatio * 100, 100); // 限制最大100%
             statsCards.innerHTML = \`
                 <div class="stat-card"><div class="label">总计额度 (Total Allowance)</div><div class="value">\${formatNumber(totalAllowance)}</div></div>
                 <div class="stat-card"><div class="label">已使用 (Total Used)</div><div class="value">\${formatNumber(totalUsed)}</div></div>
                 <div class="stat-card"><div class="label">剩余额度 (Remaining)</div><div class="value">\${formatNumber(totalRemaining)}</div></div>
-                <div class="stat-card"><div class="label">使用百分比 (Usage %)</div><div class="value">\${formatPercentage(overallRatio)}</div></div>
+                <div class="stat-card">
+                    <div class="progress-background" style="width: \${progressWidth}%"></div>
+                    <div class="label">使用百分比 (Usage %)</div>
+                    <div class="value">\${formatPercentage(overallRatio)}</div>
+                </div>
             \`;
 
             renderTable();
