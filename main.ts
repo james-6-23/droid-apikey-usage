@@ -479,9 +479,10 @@ const HTML_CONTENT = `
             background: var(--color-surface);
             border-radius: var(--radius-md);
             overflow: visible;
-            border: 1px solid var(--color-border);
+            border: 1px solid rgba(0, 0, 0, 0.08);
             margin-bottom: var(--spacing-xl);
             table-layout: fixed;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
         }
 
         thead {
@@ -490,13 +491,14 @@ const HTML_CONTENT = `
         }
 
         th {
-            padding: var(--spacing-md);
+            padding: 18px var(--spacing-md);
             text-align: left;
-            font-weight: 600;
-            font-size: 16px;
+            font-weight: 700;
+            font-size: 13px;
             white-space: nowrap;
-            letter-spacing: 0.3px;
+            letter-spacing: 0.8px;
             text-transform: uppercase;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
         }
 
         th.number { text-align: right; }
@@ -514,42 +516,62 @@ const HTML_CONTENT = `
         th:nth-child(10) { width: 10%; } /* 操作 */
 
         td {
-            padding: var(--spacing-md);
+            padding: 18px var(--spacing-md);
             border-bottom: 1px solid var(--color-border);
-            font-size: 18px;
+            font-size: 15px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            vertical-align: middle;
         }
 
         td.number {
             text-align: right;
             font-weight: 500;
             font-variant-numeric: tabular-nums;
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', sans-serif;
+            font-family: 'Fira Code', 'SF Mono', monospace;
+            letter-spacing: 0.3px;
         }
 
         td.error-row { color: var(--color-danger); }
 
-        tbody tr { transition: background-color 0.2s ease; }
-        tbody tr:hover { background-color: rgba(0, 122, 255, 0.04); }
+        tbody tr { 
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+        }
+        tbody tr:hover { 
+            background-color: rgba(0, 122, 255, 0.05);
+            border-left-color: var(--color-primary);
+        }
         tbody tr:last-child td { border-bottom: none; }
 
         /* 总计行样式 - 独特颜色 */
         .total-row {
-            background: linear-gradient(135deg, rgba(0, 122, 255, 0.08) 0%, rgba(88, 86, 214, 0.08) 100%);
+            background: linear-gradient(135deg, rgba(0, 122, 255, 0.12) 0%, rgba(88, 86, 214, 0.12) 100%);
             font-weight: 700;
             position: sticky;
             top: 0;
             z-index: 10;
-            border-bottom: 2px solid var(--color-primary) !important;
+            border-top: 2px solid var(--color-primary);
+            border-bottom: 3px solid var(--color-primary) !important;
+            box-shadow: 0 2px 8px rgba(0, 122, 255, 0.1);
         }
 
         .total-row td {
-            padding: calc(var(--spacing-md) * 1.2);
-            font-size: 20px;
+            padding: 20px var(--spacing-md);
+            font-size: 16px;
             color: var(--color-primary);
-            border-bottom: 2px solid var(--color-primary) !important;
+            border-bottom: 3px solid var(--color-primary) !important;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+
+        /* 按钮组容器 */
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            align-items: center;
         }
 
         /* 复制按钮样式 */
@@ -557,27 +579,32 @@ const HTML_CONTENT = `
             background: var(--color-primary);
             color: white;
             border: none;
-            border-radius: var(--radius-sm);
-            padding: 6px 12px;
-            font-size: 12px;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             transition: var(--transition);
             white-space: nowrap;
-            margin-right: 6px;
+            box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         }
 
         .table-copy-btn:hover {
             background: #0056D2;
-            transform: scale(1.05);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
         }
 
         .table-copy-btn:active {
-            transform: scale(0.98);
+            transform: translateY(0);
         }
 
         .table-copy-btn.copied {
             background: var(--color-success);
+            box-shadow: 0 2px 6px rgba(52, 199, 89, 0.3);
         }
 
         /* 删除按钮样式 */
@@ -585,28 +612,41 @@ const HTML_CONTENT = `
             background: var(--color-danger);
             color: white;
             border: none;
-            border-radius: var(--radius-sm);
-            padding: 6px 12px;
-            font-size: 12px;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             transition: var(--transition);
             white-space: nowrap;
+            box-shadow: 0 2px 6px rgba(255, 59, 48, 0.2);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         }
 
         .table-delete-btn:hover {
             background: #D32F2F;
-            transform: scale(1.05);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);
         }
 
         .table-delete-btn:active {
-            transform: scale(0.98);
+            transform: translateY(0);
         }
 
         /* 批量操作相关样式 */
         .checkbox-cell {
             width: 50px;
             text-align: center;
+            padding: 18px 12px !important;
+        }
+
+        .checkbox-cell input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: var(--color-primary);
         }
 
         .batch-toolbar {
@@ -718,12 +758,30 @@ const HTML_CONTENT = `
         }
 
         .key-cell {
-            font-size: 18px;
+            font-size: 14px;
             color: var(--color-text-secondary);
             max-width: 200px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            font-family: 'Fira Code', monospace;
+            font-weight: 500;
+            background: rgba(0, 0, 0, 0.02);
+            padding: 6px 10px !important;
+            border-radius: 6px;
+        }
+
+        .id-cell {
+            font-size: 13px;
+            color: var(--color-text-secondary);
+            font-weight: 500;
+            font-family: 'Fira Code', monospace;
+        }
+
+        .date-cell {
+            font-size: 14px;
+            color: var(--color-text-primary);
+            font-weight: 400;
         }
 
         .refresh-btn {
@@ -1289,12 +1347,12 @@ const HTML_CONTENT = `
                 
                 if (success) {
                     button.classList.add('copied');
-                    button.textContent = '✓ 已复制';
+                    button.innerHTML = '<span>✓</span> 已复制';
                     showToast('API Key 已复制到剪贴板');
                     
                     setTimeout(() => {
                         button.classList.remove('copied');
-                        button.textContent = '复制';
+                        button.innerHTML = '<span>📋</span> 复制';
                     }, 2000);
                 } else {
                     showToast('复制失败，请重试', true);
@@ -1550,7 +1608,7 @@ const HTML_CONTENT = `
                     tableHTML += \`
                         <tr>
                             <td class="checkbox-cell"><input type="checkbox" \${isChecked ? 'checked' : ''} onchange="toggleSelection('\${item.id}'); renderTable();"></td>
-                            <td>\${item.id}</td>
+                            <td class="id-cell">\${item.id}</td>
                             <td class="key-cell" title="\${item.key}">\${item.key}</td>
                             <td colspan="6" class="error-row">加载失败: \${item.error}</td>
                             <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
@@ -1560,17 +1618,23 @@ const HTML_CONTENT = `
                     tableHTML += \`
                         <tr>
                             <td class="checkbox-cell"><input type="checkbox" \${isChecked ? 'checked' : ''} onchange="toggleSelection('\${item.id}'); renderTable();"></td>
-                            <td>\${item.id}</td>
+                            <td class="id-cell">\${item.id}</td>
                             <td class="key-cell" title="\${item.key}">\${item.key}</td>
-                            <td>\${item.startDate}</td>
-                            <td>\${item.endDate}</td>
+                            <td class="date-cell">\${item.startDate}</td>
+                            <td class="date-cell">\${item.endDate}</td>
                             <td class="number">\${formatNumber(item.totalAllowance)}</td>
                             <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
                             <td class="number">\${formatNumber(remaining)}</td>
                             <td class="number">\${formatPercentage(item.usedRatio)}</td>
                             <td style="text-align: center;">
-                                <button class="table-copy-btn" onclick="copyKey('\${item.id}', this)">复制</button>
-                                <button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button>
+                                <div class="action-buttons">
+                                    <button class="table-copy-btn" onclick="copyKey('\${item.id}', this)">
+                                        <span>📋</span> 复制
+                                    </button>
+                                    <button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">
+                                        <span>🗑️</span> 删除
+                                    </button>
+                                </div>
                             </td>
                         </tr>\`;
                 }
