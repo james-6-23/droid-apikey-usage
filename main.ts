@@ -515,6 +515,7 @@ const HTML_CONTENT = `
         }
 
         .table-controls {
+            margin: 1rem;
             display: flex;
             justify-content: flex-end;
             align-items: center;
@@ -532,15 +533,12 @@ const HTML_CONTENT = `
         }
 
         .page-size-select {
-            padding: 8px 12px;
-            border: 1px solid var(--color-border);
+            padding: 0.5rem 1rem;
+            border: 1px solid rgba(0, 0, 0, 0.12);
             border-radius: var(--radius-md);
             background: var(--color-surface);
             color: var(--color-text);
             font-size: 14px;
-            appearance: none;
-            -webkit-appearance: none;
-            -moz-appearance: none;
             transition: var(--transition);
         }
 
