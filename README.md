@@ -21,6 +21,10 @@
 3. 入口文件：`main.ts`
 4. 点击 Deploy
 
+> 在 Deno Deploy 登录后，请确认浏览器的域名是 `https://dash.deno.com`，而不是
+> `https://console.deno.com`，后者是测试中的新项目，对于 Deno KV 的支持还处于
+> unstable 状态，部署该系统时可能会遇到问题。
+
 ### 3. 配置密码（可选）
 在项目设置 → Environment Variables 添加：
 ```
