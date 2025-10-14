@@ -1813,7 +1813,7 @@ const HTML_CONTENT = `
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
             const totalRemaining = data.totals.total_tokensRemaining;
-            const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
+            const overallRatio = totalAllowance > 0 ? (totalAllowance - totalRemaining) / totalAllowance : 0;
 
             const statsCards = document.getElementById('statsCards');
             const progressWidth = Math.min(overallRatio * 100, 100); // 限制最大100%
@@ -1843,7 +1843,7 @@ const HTML_CONTENT = `
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
             const totalRemaining = data.totals.total_tokensRemaining;
-            const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
+            const overallRatio = totalAllowance > 0 ? (totalAllowance - totalRemaining) / totalAllowance : 0;
 
             const allIds = data.data.map(item => item.id);
             const allSelected = allIds.length > 0 && allIds.every(id => selectedKeys.has(id));
