@@ -1879,8 +1879,8 @@ const HTML_CONTENT = `
 
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
-            const totalRemaining = totalAllowance - totalUsed;
-            const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
+            const totalRemaining = data.totals.total_tokensRemaining;
+            const overallRatio = totalAllowance > 0 ? (totalAllowance - totalRemaining) / totalAllowance : 0;
 
             const statsCards = document.getElementById('statsCards');
             const progressWidth = Math.min(overallRatio * 100, 100); // 限制最大100%
@@ -1916,8 +1916,8 @@ const HTML_CONTENT = `
 
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
-            const totalRemaining = totalAllowance - totalUsed;
-            const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
+            const totalRemaining = data.totals.total_tokensRemaining;
+            const overallRatio = totalAllowance > 0 ? (totalAllowance - totalRemaining) / totalAllowance : 0;
 
             const allIds = data.data.map(item => item.id);
             const allSelected = allIds.length > 0 && allIds.every(id => selectedKeys.has(id));
@@ -2420,10 +2420,13 @@ async function getAggregatedData() {
   const totals = validResults.reduce((acc, res) => {
     acc.total_orgTotalTokensUsed += res.orgTotalTokensUsed || 0;
     acc.total_totalAllowance += res.totalAllowance || 0;
+    // 计算总 token 数量的时候，负数不计入内
+    acc.total_tokensRemaining += Math.max(res.totalAllowance - res.orgTotalTokensUsed, 0);
     return acc;
   }, {
     total_orgTotalTokensUsed: 0,
     total_totalAllowance: 0,
+    total_tokensRemaining: 0,
   });
 
   const beijingTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
