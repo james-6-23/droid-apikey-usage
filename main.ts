@@ -2228,6 +2228,9 @@ const HTML_CONTENT = `
                 startAutoRefresh();
             } else {
                 updateToggleButton(false);
+                document.getElementById('autoRefreshStatus').innerHTML = '自动刷新: <span style="color: #FF9500;">已暂停</span>';
+                document.getElementById('headerNextRefresh').textContent = '已暂停';
+                document.getElementById('nextRefreshDisplay').textContent = '已暂停';
             }
         }
 
