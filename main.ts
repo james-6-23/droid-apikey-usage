@@ -13,133 +13,133 @@ console.log(`🔒 Password Protection: ${ADMIN_PASSWORD ? 'ENABLED' : 'DISABLED'
 
 // Session Management
 interface Session {
-  id: string;
-  createdAt: number;
-  expiresAt: number;
+    id: string;
+    createdAt: number;
+    expiresAt: number;
 }
 
 async function createSession(): Promise<string> {
-  const sessionId = crypto.randomUUID();
-  const session: Session = {
-    id: sessionId,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
-  };
-  await kv.set(["sessions", sessionId], session);
-  return sessionId;
+    const sessionId = crypto.randomUUID();
+    const session: Session = {
+        id: sessionId,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
+    };
+    await kv.set(["sessions", sessionId], session);
+    return sessionId;
 }
 
 async function validateSession(sessionId: string): Promise<boolean> {
-  const result = await kv.get<Session>(["sessions", sessionId]);
-  if (!result.value) return false;
+    const result = await kv.get<Session>(["sessions", sessionId]);
+    if (!result.value) return false;
 
-  const session = result.value;
-  if (Date.now() > session.expiresAt) {
-    await kv.delete(["sessions", sessionId]);
-    return false;
-  }
+    const session = result.value;
+    if (Date.now() > session.expiresAt) {
+        await kv.delete(["sessions", sessionId]);
+        return false;
+    }
 
-  return true;
+    return true;
 }
 
 async function isAuthenticated(req: Request): Promise<boolean> {
-  // If no password is set, allow access
-  if (!ADMIN_PASSWORD) return true;
+    // If no password is set, allow access
+    if (!ADMIN_PASSWORD) return true;
 
-  const cookies = getCookies(req.headers);
-  const sessionId = cookies.session;
+    const cookies = getCookies(req.headers);
+    const sessionId = cookies.session;
 
-  if (!sessionId) return false;
+    if (!sessionId) return false;
 
-  return await validateSession(sessionId);
+    return await validateSession(sessionId);
 }
 
 // KV Storage Interface
 interface ApiKeyEntry {
-  id: string;
-  key: string;
-  name?: string;
-  createdAt: number;
+    id: string;
+    key: string;
+    name?: string;
+    createdAt: number;
 }
 
 // KV Database Functions
 async function saveApiKey(id: string, key: string, name?: string): Promise<void> {
-  const entry: ApiKeyEntry = {
-    id,
-    key,
-    name: name || `Key ${id}`,
-    createdAt: Date.now(),
-  };
-  await kv.set(["apikeys", id], entry);
+    const entry: ApiKeyEntry = {
+        id,
+        key,
+        name: name || `Key ${id}`,
+        createdAt: Date.now(),
+    };
+    await kv.set(["apikeys", id], entry);
 }
 
 async function getApiKey(id: string): Promise<ApiKeyEntry | null> {
-  const result = await kv.get<ApiKeyEntry>(["apikeys", id]);
-  return result.value;
+    const result = await kv.get<ApiKeyEntry>(["apikeys", id]);
+    return result.value;
 }
 
 async function getAllApiKeys(): Promise<ApiKeyEntry[]> {
-  const entries: ApiKeyEntry[] = [];
-  const iter = kv.list<ApiKeyEntry>({ prefix: ["apikeys"] });
-  for await (const entry of iter) {
-    entries.push(entry.value);
-  }
-  return entries;
+    const entries: ApiKeyEntry[] = [];
+    const iter = kv.list<ApiKeyEntry>({ prefix: ["apikeys"] });
+    for await (const entry of iter) {
+        entries.push(entry.value);
+    }
+    return entries;
 }
 
 async function deleteApiKey(id: string): Promise<void> {
-  await kv.delete(["apikeys", id]);
+    await kv.delete(["apikeys", id]);
 }
 
 async function batchImportKeys(keys: string[]): Promise<{ success: number; failed: number; duplicates: number }> {
-  let success = 0;
-  let failed = 0;
-  let duplicates = 0;
+    let success = 0;
+    let failed = 0;
+    let duplicates = 0;
 
-  // 获取所有现有的API Keys
-  const existingKeys = await getAllApiKeys();
-  const existingKeySet = new Set(existingKeys.map(k => k.key));
+    // 获取所有现有的API Keys
+    const existingKeys = await getAllApiKeys();
+    const existingKeySet = new Set(existingKeys.map(k => k.key));
 
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i].trim();
-    if (key.length > 0) {
-      try {
-        // 检查是否已存在
-        if (existingKeySet.has(key)) {
-          duplicates++;
-          console.log(`Skipped duplicate key: ${key.substring(0, 10)}...`);
-          continue;
+    for (let i = 0; i < keys.length; i++) {
+        const key = keys[i].trim();
+        if (key.length > 0) {
+            try {
+                // 检查是否已存在
+                if (existingKeySet.has(key)) {
+                    duplicates++;
+                    console.log(`Skipped duplicate key: ${key.substring(0, 10)}...`);
+                    continue;
+                }
+
+                const id = `key-${Date.now()}-${i}`;
+                await saveApiKey(id, key);
+                existingKeySet.add(key); // 添加到集合中防止本批次内重复
+                success++;
+            } catch (error) {
+                failed++;
+                console.error(`Failed to import key ${i}:`, error);
+            }
         }
-        
-        const id = `key-${Date.now()}-${i}`;
-        await saveApiKey(id, key);
-        existingKeySet.add(key); // 添加到集合中防止本批次内重复
-        success++;
-      } catch (error) {
-        failed++;
-        console.error(`Failed to import key ${i}:`, error);
-      }
     }
-  }
 
-  return { success, failed, duplicates };
+    return { success, failed, duplicates };
 }
 
 async function batchDeleteKeys(ids: string[]): Promise<{ success: number; failed: number }> {
-  let success = 0;
-  let failed = 0;
+    let success = 0;
+    let failed = 0;
 
-  for (const id of ids) {
-    try {
-      await deleteApiKey(id);
-      success++;
-    } catch (error) {
-      failed++;
-      console.error(`Failed to delete key ${id}:`, error);
+    for (const id of ids) {
+        try {
+            await deleteApiKey(id);
+            success++;
+        } catch (error) {
+            failed++;
+            console.error(`Failed to delete key ${id}:`, error);
+        }
     }
-  }
 
-  return { success, failed };
+    return { success, failed };
 }
 
 // Login Page HTML
@@ -151,133 +151,178 @@ const LOGIN_PAGE = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录 - API 余额监控看板</title>
     <style>
+        :root {
+            --primary: #007AFF;
+            --primary-dark: #0056b3;
+            --bg-gradient: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', sans-serif;
-            background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif;
+            background: #f5f5f7;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 24px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Animated background shapes */
+        body::before, body::after {
+            content: '';
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            filter: blur(80px);
+            z-index: -1;
+            opacity: 0.6;
+            animation: float 10s infinite ease-in-out alternate;
+        }
+
+        body::before {
+            background: #007AFF;
+            top: -100px;
+            left: -100px;
+        }
+
+        body::after {
+            background: #5856D6;
+            bottom: -100px;
+            right: -100px;
+            animation-delay: -5s;
+        }
+
+        @keyframes float {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
         }
 
         .login-container {
-            background: white;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border-radius: 24px;
             padding: 48px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 400px;
+            box-shadow: 
+                0 20px 40px rgba(0, 0, 0, 0.1),
+                0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+            max-width: 380px;
             width: 100%;
-            animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateY(0);
+            animation: appear 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
 
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(40px) scale(0.95);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
+        @keyframes appear {
+            from { opacity: 0; transform: translateY(20px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
         .login-icon {
-            font-size: 64px;
+            font-size: 48px;
             text-align: center;
             margin-bottom: 24px;
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.1));
         }
 
         h1 {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 700;
             text-align: center;
-            color: #1D1D1F;
-            margin-bottom: 12px;
+            color: #1d1d1f;
+            margin-bottom: 8px;
             letter-spacing: -0.5px;
         }
 
         p {
             text-align: center;
-            color: #86868B;
+            color: #86868b;
             margin-bottom: 32px;
-            font-size: 15px;
+            font-size: 14px;
+            line-height: 1.4;
         }
 
-        .form-group {
-            margin-bottom: 24px;
-        }
+        .form-group { margin-bottom: 24px; }
 
         label {
             display: block;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
-            color: #1D1D1F;
+            color: #86868b;
             margin-bottom: 8px;
             text-transform: uppercase;
-            letter-spacing: 0.3px;
+            letter-spacing: 0.5px;
         }
 
         input[type="password"] {
             width: 100%;
             padding: 16px;
-            border: 1.5px solid rgba(0, 0, 0, 0.06);
-            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 14px;
             font-size: 16px;
-            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            transition: all 0.2s;
+            font-family: inherit;
+            color: #1d1d1f;
         }
 
         input[type="password"]:focus {
             outline: none;
             border-color: #007AFF;
-            box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1);
+            background: #fff;
+            box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
         }
 
         .login-btn {
             width: 100%;
             padding: 16px;
-            background: #007AFF;
+            background: linear-gradient(135deg, #007AFF 0%, #0051D5 100%);
             color: white;
             border: none;
-            border-radius: 12px;
+            border-radius: 14px;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
         }
 
         .login-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(0, 122, 255, 0.4);
         }
 
         .login-btn:active {
             transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
         }
 
         .error-message {
             background: rgba(255, 59, 48, 0.1);
             color: #FF3B30;
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-            margin-bottom: 16px;
+            padding: 12px;
+            border-radius: 12px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            text-align: center;
             border: 1px solid rgba(255, 59, 48, 0.2);
             display: none;
         }
-
+        
         .error-message.show {
             display: block;
-            animation: shake 0.4s;
+            animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
         }
 
         @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-10px); }
-            75% { transform: translateX(10px); }
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
         }
     </style>
 </head>
@@ -354,924 +399,407 @@ const HTML_CONTENT = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Droid API 余额监控看板</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        /* Apple-inspired Design System with FiraCode */
         :root {
-            --color-primary: #007AFF;
-            --color-secondary: #5856D6;
-            --color-success: #34C759;
-            --color-warning: #FF9500;
-            --color-danger: #FF3B30;
-            --color-bg: #F5F5F7;
-            --color-surface: #FFFFFF;
-            --color-text-primary: #1D1D1F;
-            --color-text-secondary: #86868B;
-            --color-border: rgba(0, 0, 0, 0.06);
-            --color-shadow: rgba(0, 0, 0, 0.08);
-            --radius-sm: 8px;
-            --radius-md: 12px;
-            --radius-lg: 18px;
-            --radius-xl: 24px;
-            --spacing-xs: 8px;
-            --spacing-sm: 12px;
-            --spacing-md: 16px;
-            --spacing-lg: 24px;
-            --spacing-xl: 32px;
-            --transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            --primary: #007AFF;
+            --primary-gradient: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+            --secondary: #5856D6;
+            --success: #34C759;
+            --warning: #FF9500;
+            --danger: #FF3B30;
+            --bg-body: #F2F2F7;
+            --bg-card: rgba(255, 255, 255, 0.72);
+            --bg-glass: rgba(255, 255, 255, 0.8);
+            --text-main: #1D1D1F;
+            --text-secondary: #86868B;
+            --border: rgba(0, 0, 0, 0.05);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.1);
+            --radius-sm: 10px;
+            --radius-md: 16px;
+            --radius-lg: 24px;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; outline: none; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', sans-serif;
-            background: var(--color-bg);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-body);
+            color: var(--text-main);
             min-height: 100vh;
-            padding: var(--spacing-lg);
-            color: var(--color-text-primary);
-            line-height: 1.5;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            text-rendering: optimizeLegibility;
+            padding: 40px 20px;
+            background-image: 
+                radial-gradient(circle at 0% 0%, rgba(0, 122, 255, 0.15), transparent 40%),
+                radial-gradient(circle at 100% 0%, rgba(88, 86, 214, 0.15), transparent 40%);
+            background-attachment: fixed;
         }
-
-        /* FiraCode for code/numbers - Scale 1.25x and anti-aliasing */
-        .code-font, .key-cell, td.number, .key-masked, #importKeys {
-            font-family: 'Fira Code', 'SF Mono', 'Monaco', 'Courier New', monospace;
-            font-feature-settings: "liga" 1, "calt" 1;
-            -webkit-font-smoothing: subpixel-antialiased;
-            -moz-osx-font-smoothing: auto;
-            text-rendering: optimizeLegibility;
-        }
-
+        
         .container {
-            max-width: 2400px;
+            max-width: 1600px;
             margin: 0 auto;
-            background: var(--color-surface);
-            border-radius: var(--radius-xl);
-            box-shadow: 0 8px 30px var(--color-shadow);
+            background: transparent;
+            border-radius: var(--radius-lg);
+            overflow: visible;
+        }
+
+        /* Header Styling */
+        .header {
+            background: var(--bg-glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: var(--radius-lg);
+            padding: 40px;
+            margin-bottom: 32px;
+            text-align: center;
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            position: relative;
             overflow: hidden;
         }
 
-        .header {
-            position: relative;
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-            color: white;
-            padding: var(--spacing-xl) var(--spacing-lg);
-            text-align: center;
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 6px;
+            background: var(--primary-gradient);
         }
 
         .header h1 {
-            font-size: 48px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-            margin-bottom: var(--spacing-xs);
+            font-size: 36px;
+            font-weight: 800;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 12px;
+            letter-spacing: -1px;
         }
 
         .header .update-time {
-            font-size: 20px;
-            opacity: 0.85;
-            font-weight: 400;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+            background: rgba(0,0,0,0.03);
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
         }
 
+        /* Stats Grid */
         .stats-cards {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: var(--spacing-lg);
-            padding: var(--spacing-xl);
-            background: var(--color-bg);
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+            padding: 0;
+            background: transparent;
         }
 
         .stat-card {
-            background: var(--color-surface);
-            border-radius: var(--radius-lg);
-            padding: calc(var(--spacing-lg) * 1.25);
+            background: var(--bg-glass);
+            backdrop-filter: blur(20px);
+            border-radius: var(--radius-md);
+            padding: 32px 24px;
             text-align: center;
-            border: 1px solid var(--color-border);
-            transition: var(--transition);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid rgba(255,255,255,0.6);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
 
         .stat-card:hover {
-            transform: translateY(-4px) scale(1.02);
-            box-shadow: 0 12px 40px var(--color-shadow);
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-md);
         }
 
         .stat-card .label {
-            font-size: 18px;
-            color: var(--color-text-secondary);
-            margin-bottom: var(--spacing-sm);
-            font-weight: 500;
-            letter-spacing: 0.3px;
+            font-size: 13px;
             text-transform: uppercase;
-            position: relative;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            margin-bottom: 12px;
             z-index: 2;
         }
 
         .stat-card .value {
-            font-size: 56px;
-            font-weight: 600;
-            background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', sans-serif;
-            font-variant-numeric: tabular-nums;
-            position: relative;
+            font-size: 42px;
+            font-weight: 700;
+            font-family: 'SF Pro Display', -apple-system, sans-serif;
+            color: var(--text-main);
+            letter-spacing: -1px;
             z-index: 2;
         }
 
-        /* 进度条背景 */
+        /* Progress bar specific */
         .stat-card .progress-background {
             position: absolute;
-            bottom: 0;
-            left: 0;
-            height: 100%;
-            background: linear-gradient(135deg, rgba(0, 122, 255, 0.15) 0%, rgba(88, 86, 214, 0.15) 100%);
-            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+            bottom: 0; left: 0; height: 4px;
+            background: var(--primary-gradient);
             z-index: 1;
-            border-radius: var(--radius-lg);
+            border-radius: 0;
+            opacity: 1;
         }
 
-        .stat-card .progress-background::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 2px;
-            height: 100%;
-            background: linear-gradient(180deg, transparent 0%, rgba(0, 122, 255, 0.6) 50%, transparent 100%);
-            box-shadow: 0 0 8px rgba(0, 122, 255, 0.4);
-        }
-
+        /* Table Styling */
         .table-container {
-            padding: 0 var(--spacing-xl) var(--spacing-xl);
-            overflow-x: visible;
+            background: var(--bg-glass);
+            backdrop-filter: blur(20px);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(255,255,255,0.6);
+            overflow-x: auto;
         }
 
         table {
             width: 100%;
-            border-collapse: separate;
+            border-collapse: collapse;
             border-spacing: 0;
-            background: var(--color-surface);
-            border-radius: var(--radius-md);
-            overflow: visible;
-            border: 1px solid rgba(0, 0, 0, 0.08);
-            margin-bottom: var(--spacing-xl);
-            table-layout: fixed;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+            margin: 0;
+            box-shadow: none;
+            background: transparent;
+            border-radius: 0;
+            border: none;
         }
 
         thead {
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-            color: white;
+            background: transparent;
         }
 
         th {
-            padding: 22px var(--spacing-md);
-            text-align: left;
-            font-weight: 700;
-            font-size: 13px;
-            white-space: nowrap;
-            letter-spacing: 0.8px;
+            padding: 16px 20px;
+            font-size: 12px;
             text-transform: uppercase;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 2px solid rgba(0,0,0,0.05);
+            white-space: nowrap;
+            background: transparent;
         }
 
         th.number { text-align: right; }
 
-        /* 调整列宽 */
-        th:nth-child(1) { width: 50px; } /* 复选框 */
-        th:nth-child(2) { width: 5%; } /* ID */
-        th:nth-child(3) { width: 9%; } /* API Key */
-        th:nth-child(4) { width: 9%; } /* 开始时间 */
-        th:nth-child(5) { width: 9%; } /* 结束时间 */
-        th:nth-child(6) { width: 12%; } /* 总计额度 */
-        th:nth-child(7) { width: 12%; } /* 已使用 */
-        th:nth-child(8) { width: 12%; } /* 剩余额度 */
-        th:nth-child(9) { width: 10%; } /* 使用百分比 */
-        th:nth-child(10) { width: 10%; } /* 操作 */
-
         td {
-            padding: 22px var(--spacing-md);
-            border-bottom: 1px solid var(--color-border);
-            font-size: 15px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            color: var(--text-main);
             vertical-align: middle;
+            transition: background 0.2s;
         }
 
         td.number {
             text-align: right;
+            font-family: 'Fira Code', monospace;
             font-weight: 500;
-            font-variant-numeric: tabular-nums;
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', system-ui, sans-serif;
-            font-size: 18px;
-            letter-spacing: 0.3px;
         }
 
-        td.error-row { color: var(--color-danger); }
-
-        tbody tr { 
-            transition: all 0.2s ease;
-            border-left: 3px solid transparent;
+        tbody tr {
+            transition: transform 0.2s, background 0.2s;
         }
-        tbody tr:hover { 
-            background-color: rgba(0, 122, 255, 0.05);
-            border-left-color: var(--color-primary);
-        }
-        tbody tr:last-child td { border-bottom: none; }
 
-        /* 总计行样式 - 独特颜色 */
+        tbody tr:hover {
+            background: rgba(0, 122, 255, 0.03);
+        }
+
+        /* Total Row - Modern Floating Look */
         .total-row {
-            background: linear-gradient(135deg, rgba(0, 122, 255, 0.12) 0%, rgba(88, 86, 214, 0.12) 100%);
+            background: linear-gradient(90deg, rgba(0, 122, 255, 0.05), rgba(88, 86, 214, 0.05));
             font-weight: 700;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            border-top: 2px solid var(--color-primary);
-            border-bottom: 3px solid var(--color-primary) !important;
-            box-shadow: 0 2px 8px rgba(0, 122, 255, 0.1);
+            border-bottom: 2px solid var(--primary) !important;
         }
 
         .total-row td {
-            padding: 24px var(--spacing-md);
+            color: var(--primary);
+            border-bottom: none;
             font-size: 16px;
-            color: var(--color-primary);
-            border-bottom: 3px solid var(--color-primary) !important;
-            font-weight: 700;
-            letter-spacing: 0.3px;
         }
 
-        .total-row td.number {
-            font-size: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', system-ui, sans-serif;
-            font-weight: 600;
-            letter-spacing: 0.3px;
-        }
-
-        /* 按钮组容器 */
-        .action-buttons {
-            display: flex;
-            gap: 8px;
-            justify-content: center;
-            align-items: center;
-        }
-
-        /* 按钮图标样式 */
-        .btn-icon {
-            width: 18px;
-            height: 18px;
-            display: inline-block;
-            vertical-align: middle;
-            filter: brightness(0) invert(1);
-        }
-
-        /* 复制按钮样式 */
-        .table-copy-btn {
-            background: var(--color-primary);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            white-space: nowrap;
-            box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 38px;
-            height: 38px;
-        }
-
-        .table-copy-btn:hover {
-            background: #0056D2;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
-        }
-
-        .table-copy-btn:active {
-            transform: translateY(0);
-        }
-
-        .table-copy-btn.copied {
-            background: var(--color-success);
-            box-shadow: 0 2px 6px rgba(52, 199, 89, 0.3);
-        }
-
-        /* 删除按钮样式 */
-        .table-delete-btn {
-            background: var(--color-danger);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            white-space: nowrap;
-            box-shadow: 0 2px 6px rgba(255, 59, 48, 0.2);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 38px;
-            height: 38px;
-        }
-
-        .table-delete-btn:hover {
-            background: #D32F2F;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);
-        }
-
-        .table-delete-btn:active {
-            transform: translateY(0);
-        }
-
-        /* 批量操作相关样式 */
-        .checkbox-cell {
-            width: 50px;
-            text-align: center;
-            padding: 22px 12px !important;
-        }
-
-        .checkbox-cell input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-            accent-color: var(--color-primary);
-        }
-
-        .batch-toolbar {
-            position: sticky;
-            top: 0;
-            z-index: 200;
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-            color: white;
-            padding: var(--spacing-md) var(--spacing-lg);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-md);
-            justify-content: space-between;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-            border-radius: var(--radius-md);
-            margin-bottom: var(--spacing-md);
-        }
-
-        .batch-toolbar-left {
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-md);
-        }
-
-        .batch-toolbar-right {
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-        }
-
-        .batch-count {
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .batch-btn {
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: var(--radius-sm);
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            white-space: nowrap;
-        }
-
-        .batch-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-2px);
-        }
-
-        .batch-btn.danger {
-            background: var(--color-danger);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-
-        .batch-btn.danger:hover {
-            background: #D32F2F;
-        }
-
-        /* Toast 提示样式 */
-        .toast {
-            position: fixed;
-            top: var(--spacing-xl);
-            right: var(--spacing-xl);
-            background: var(--color-surface);
-            color: var(--color-text-primary);
-            padding: var(--spacing-md) var(--spacing-lg);
-            border-radius: var(--radius-md);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            z-index: 10000;
-            animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s;
-            border-left: 4px solid var(--color-success);
-        }
-
-        .toast.error {
-            border-left-color: var(--color-danger);
-        }
-
-        @keyframes slideInRight {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        @keyframes fadeOut {
-            from { opacity: 1; }
-            to { opacity: 0; }
-        }
-
-        .toast-icon {
-            font-size: 20px;
-        }
-
-        .toast-message {
-            font-size: 15px;
-            font-weight: 500;
-        }
-
+        /* Key Cells */
         .key-cell {
-            font-size: 20px;
-            color: var(--color-text-secondary);
-            max-width: 200px;
+            font-family: 'Fira Code', monospace;
+            font-size: 13px;
+            background: rgba(0,0,0,0.03);
+            padding: 6px 10px !important;
+            border-radius: 6px;
+            color: #333;
+            display: inline-block;
+            max-width: 180px;
             overflow: hidden;
             text-overflow: ellipsis;
-            white-space: nowrap;
-            font-family: 'Fira Code', monospace;
-            font-weight: 500;
-            background: rgba(0, 0, 0, 0.02);
-            padding: 8px 12px !important;
-            border-radius: 6px;
+            vertical-align: middle;
         }
-
+        
         .id-cell {
-            font-size: 20px;
-            color: var(--color-text-secondary);
-            font-weight: 500;
             font-family: 'Fira Code', monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
         }
 
-        .date-cell {
-            font-size: 20px;
-            color: var(--color-text-primary);
-            font-weight: 400;
-        }
+        /* Buttons */
+        .action-buttons { gap: 8px; }
 
-        .refresh-btn {
-            position: fixed;
-            bottom: var(--spacing-xl);
-            right: var(--spacing-xl);
-            background: var(--color-primary);
-            color: white;
+        button {
             border: none;
-            border-radius: 100px;
-            padding: 16px 28px;
-            font-size: 15px;
-            font-weight: 600;
             cursor: pointer;
-            box-shadow: 0 8px 24px rgba(0, 122, 255, 0.35);
-            transition: var(--transition);
+            transition: all 0.2s;
+        }
+
+        .table-copy-btn, .table-delete-btn {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: none;
+        }
+        
+        .table-copy-btn { background: rgba(0, 122, 255, 0.1); color: var(--primary); }
+        .table-copy-btn:hover { background: var(--primary); color: white; }
+        
+        .table-delete-btn { background: rgba(255, 59, 48, 0.1); color: var(--danger); }
+        .table-delete-btn:hover { background: var(--danger); color: white; }
+
+        .btn-icon { width: 16px; height: 16px; filter: none; }
+        .table-copy-btn .btn-icon { filter: invert(33%) sepia(94%) saturate(2339%) hue-rotate(201deg) brightness(105%) contrast(101%); }
+        .table-copy-btn:hover .btn-icon { filter: brightness(0) invert(1); }
+        .table-delete-btn .btn-icon { filter: invert(35%) sepia(45%) saturate(3593%) hue-rotate(338deg) brightness(106%) contrast(108%); }
+        .table-delete-btn:hover .btn-icon { filter: brightness(0) invert(1); }
+
+        /* Floating Action Buttons */
+        .refresh-btn, .clear-zero-btn {
+            border-radius: 100px;
+            padding: 14px 24px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: var(--shadow-lg);
+            z-index: 100;
             display: flex;
             align-items: center;
-            gap: var(--spacing-xs);
-            z-index: 100;
+            gap: 8px;
         }
-
-        .refresh-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 32px rgba(0, 122, 255, 0.45);
+        
+        .refresh-btn {
+            background: var(--text-main);
+            color: white;
+            bottom: 32px; right: 32px;
         }
-
-        .refresh-btn:active {
-            transform: translateY(-1px);
-        }
+        .refresh-btn:hover { transform: translateY(-4px); background: #000; box-shadow: 0 15px 30px rgba(0,0,0,0.2); }
 
         .clear-zero-btn {
-            position: fixed;
-            bottom: calc(var(--spacing-xl) + 70px);
-            right: var(--spacing-xl);
-            background: var(--color-danger);
-            color: white;
-            border: none;
-            border-radius: 100px;
-            padding: 16px 28px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 8px 24px rgba(255, 59, 48, 0.35);
-            transition: var(--transition);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-xs);
-            z-index: 100;
-        }
-
-        .clear-zero-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 32px rgba(255, 59, 48, 0.45);
-        }
-
-        .clear-zero-btn:active {
-            transform: translateY(-1px);
-        }
-
-        .loading {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--color-text-secondary);
-            font-size: 15px;
-        }
-
-        .error {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--color-danger);
-            font-size: 15px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 18px;
-            height: 18px;
-            border: 2.5px solid rgba(255, 255, 255, 0.25);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.8s linear infinite;
-        }
-
-        .manage-btn {
-            position: absolute;
-            top: var(--spacing-lg);
-            right: var(--spacing-lg);
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            border-radius: 100px;
-            padding: 10px 20px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-        .manage-btn:hover {
-            background: rgba(255, 255, 255, 0.25);
-            transform: scale(1.05);
-        }
-
-        .manage-panel {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(10px);
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: var(--spacing-lg);
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        .manage-content {
-            background: var(--color-surface);
-            border-radius: var(--radius-xl);
-            max-width: 1000px;
-            width: 100%;
-            max-height: 85vh;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(40px) scale(0.95);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        .manage-header {
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-            color: white;
-            padding: var(--spacing-lg) var(--spacing-xl);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .manage-header h2 {
-            margin: 0;
-            font-size: 24px;
-            font-weight: 700;
-            letter-spacing: -0.3px;
-        }
-
-        .close-btn {
-            position: absolute;
-            top: var(--spacing-md);
-            right: var(--spacing-md);
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            border: none;
-            color: white;
-            font-size: 22px;
-            cursor: pointer;
-            border-radius: 50%;
-            width: 36px;
-            height: 36px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: var(--transition);
-            z-index: 10;
-        }
-
-        .close-btn:hover {
-            background: rgba(255, 255, 255, 0.25);
-            transform: rotate(90deg);
-        }
-
-        .manage-body {
-            padding: var(--spacing-xl);
-            overflow-y: auto;
-            flex: 1;
-        }
-
-        .import-section {
-            margin-bottom: 0;
-        }
-
-        .import-section h3 {
-            margin: 0 0 var(--spacing-md) 0;
-            font-size: 22px;
-            font-weight: 600;
-            color: var(--color-text-primary);
-            letter-spacing: -0.3px;
-        }
-
-        #importKeys {
-            width: 100%;
-            padding: var(--spacing-md);
-            border: 1.5px solid var(--color-border);
-            border-radius: var(--radius-md);
-            font-size: 15px;
-            resize: vertical;
-            transition: var(--transition);
-            line-height: 1.8;
-            min-height: 150px;
-        }
-
-        #importKeys:focus {
-            outline: none;
-            border-color: var(--color-primary);
-            box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1);
-        }
-
-        .import-btn {
-            margin-top: var(--spacing-md);
-            background: var(--color-primary);
-            color: white;
-            border: none;
-            border-radius: var(--radius-md);
-            padding: 12px 24px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            display: inline-flex;
-            align-items: center;
-            gap: var(--spacing-xs);
-        }
-
-        .import-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
-        }
-
-        .import-btn:active {
-            transform: translateY(0);
-        }
-
-        .import-result {
-            margin-top: var(--spacing-md);
-            padding: var(--spacing-md);
-            border-radius: var(--radius-sm);
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .import-result.success {
-            background: rgba(52, 199, 89, 0.1);
-            color: var(--color-success);
-            border: 1px solid rgba(52, 199, 89, 0.2);
-        }
-
-        .import-result.error {
-            background: rgba(255, 59, 48, 0.1);
-            color: var(--color-danger);
+            background: white;
+            color: var(--danger);
+            bottom: 90px; right: 32px;
             border: 1px solid rgba(255, 59, 48, 0.2);
         }
+        .clear-zero-btn:hover { transform: translateY(-4px); background: #fff0f0; }
 
-        .keys-list {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .keys-list::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .keys-list::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .keys-list::-webkit-scrollbar-thumb {
-            background: var(--color-border);
-            border-radius: 100px;
-        }
-
-        .keys-list::-webkit-scrollbar-thumb:hover {
-            background: var(--color-text-secondary);
-        }
-
-        /* 分页样式 */
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: var(--spacing-sm);
-            margin-top: var(--spacing-lg);
-            padding: var(--spacing-lg) 0;
-        }
-
-        .pagination-btn {
-            background: var(--color-surface);
-            color: var(--color-text-primary);
-            border: 1.5px solid var(--color-border);
-            border-radius: var(--radius-sm);
-            padding: 10px 16px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            min-width: 40px;
-        }
-
-        .pagination-btn:hover:not(:disabled) {
-            background: var(--color-primary);
-            color: white;
-            border-color: var(--color-primary);
-            transform: translateY(-2px);
-        }
-
-        .pagination-btn:disabled {
-            opacity: 0.3;
-            cursor: not-allowed;
-        }
-
-        .pagination-btn.active {
-            background: var(--color-primary);
-            color: white;
-            border-color: var(--color-primary);
-        }
-
-        .pagination-info {
-            font-size: 16px;
-            color: var(--color-text-secondary);
+        /* Management Panel (Modal) */
+        .manage-btn {
+            position: absolute;
+            top: 40px; right: 40px;
+            background: rgba(255,255,255,0.2);
+            color: var(--text-main);
+            border: 1px solid rgba(255,255,255,0.3);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            border-radius: 20px;
             font-weight: 500;
-            padding: 0 var(--spacing-md);
         }
+        .manage-btn:hover { background: rgba(255,255,255,0.4); }
 
-        .key-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: calc(var(--spacing-md) * 1.25);
-            background: var(--color-bg);
-            border-radius: var(--radius-md);
-            margin-bottom: var(--spacing-sm);
-            transition: var(--transition);
-            border: 1px solid transparent;
+        .manage-panel {
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(5px);
         }
-
-        .key-item:hover {
-            background: rgba(0, 122, 255, 0.04);
-            border-color: rgba(0, 122, 255, 0.1);
+        
+        .manage-content {
+            background: #fff;
+            box-shadow: var(--shadow-lg);
+            border-radius: var(--radius-lg);
         }
-
-        .key-info { flex: 1; }
-
-        .key-id {
-            font-weight: 600;
-            color: var(--color-text-primary);
-            font-size: 16px;
-            margin-bottom: 6px;
+        
+        .manage-header {
+            background: white;
+            color: var(--text-main);
+            border-bottom: 1px solid var(--border);
+            padding: 24px 32px;
         }
-
-        .key-masked {
-            color: var(--color-text-secondary);
-            font-size: 14px;
+        
+        .manage-header h2 { font-size: 20px; }
+        
+        .close-btn {
+            color: var(--text-secondary);
+            background: rgba(0,0,0,0.05);
+            top: 20px; right: 20px;
         }
+        .close-btn:hover { background: rgba(0,0,0,0.1); color: var(--text-main); }
+        
+        #importKeys {
+            border: 1px solid var(--border);
+            background: #F5F5F7;
+            padding: 16px;
+            border-radius: 12px;
+            font-family: 'Fira Code', monospace;
+        }
+        #importKeys:focus { background: white; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(0,122,255,0.1); }
 
-        .delete-btn {
-            background: var(--color-danger);
+        /* Pagination */
+        .pagination-btn {
+            border: 1px solid var(--border);
+            background: white;
+            color: var(--text-main);
+            border-radius: 8px;
+        }
+        .pagination-btn:hover:not(:disabled) {
+            background: var(--text-main);
             color: white;
+            border-color: var(--text-main);
+        }
+        .pagination-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* Batch Toolbar */
+        .batch-toolbar {
+            background: var(--text-main);
+            border-radius: 16px;
+            color: white;
+            box-shadow: var(--shadow-lg);
+            top: 20px;
+            margin-bottom: 20px;
+            padding: 16px 24px;
+        }
+        
+        .batch-btn {
+            background: rgba(255,255,255,0.15);
             border: none;
-            border-radius: var(--radius-sm);
-            padding: 10px 18px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
+        }
+        .batch-btn.danger { background: rgba(255, 59, 48, 0.2); color: #ff8a80; }
+        .batch-btn.danger:hover { background: rgba(255, 59, 48, 0.4); }
+
+        /* Checkboxes */
+        input[type="checkbox"] {
+            accent-color: var(--text-main);
+            width: 18px; height: 18px;
         }
 
-        .delete-btn:hover {
-            background: #D32F2F;
-            transform: scale(1.05);
-        }
-
-        .delete-btn:active {
-            transform: scale(0.98);
-        }
-
-        /* Responsive Design */
+        /* Responsive */
         @media (max-width: 768px) {
-            body { padding: var(--spacing-sm); }
-            .header { padding: var(--spacing-lg); }
-            .header h1 { font-size: 26px; }
-            .stats-cards {
-                grid-template-columns: 1fr;
-                padding: var(--spacing-lg);
-            }
-            .table-container {
-                padding: 0 var(--spacing-md) var(--spacing-lg);
-                overflow-x: scroll;
-            }
-            table {
-                transform: scale(1);
-                margin-bottom: var(--spacing-lg);
-            }
-            .manage-btn {
-                position: static;
-                margin-top: var(--spacing-md);
-                width: 100%;
-            }
-            .refresh-btn {
-                bottom: var(--spacing-md);
-                right: var(--spacing-md);
-                padding: 14px 24px;
-            }
+            body { padding: 16px; }
+            .container { box-shadow: none; }
+            .header { padding: 24px; margin-bottom: 20px; }
+            .header h1 { font-size: 24px; }
+            .stat-card .value { font-size: 32px; }
+            .manage-btn { position: static; width: 100%; margin-top: 16px; background: rgba(0,0,0,0.05); color: var(--text-main); }
         }
     </style>
 </head>
@@ -2246,332 +1774,332 @@ const HTML_CONTENT = `
 
 // Continue with API functions...
 async function fetchApiKeyData(id: string, key: string) {
-  try {
-    const response = await fetch('https://app.factory.ai/api/organization/members/chat-usage', {
-      headers: {
-        'Authorization': `Bearer ${key}`,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-      }
-    });
+    try {
+        const response = await fetch('https://app.factory.ai/api/organization/members/chat-usage', {
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+            }
+        });
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error(`Error fetching data for key ID ${id}: ${response.status} ${errorBody}`);
-      return { id, key: `${key.substring(0, 4)}...`, error: `HTTP ${response.status}` };
-    }
-
-    const apiData = await response.json();
-    if (!apiData.usage || !apiData.usage.standard) {
-        return { id, key: `${key.substring(0, 4)}...`, error: 'Invalid API response structure' };
-    }
-
-    const usageInfo = apiData.usage;
-    const standardUsage = usageInfo.standard;
-
-    const formatDate = (timestamp: number) => {
-        if (!timestamp && timestamp !== 0) return 'N/A';
-        try {
-            return new Date(timestamp).toISOString().split('T')[0];
-        } catch (e) {
-            return 'Invalid Date';
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error(`Error fetching data for key ID ${id}: ${response.status} ${errorBody}`);
+            return { id, key: `${key.substring(0, 4)}...`, error: `HTTP ${response.status}` };
         }
-    }
 
-    const maskedKey = `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
-    return {
-      id,
-      key: maskedKey,
-      startDate: formatDate(usageInfo.startDate),
-      endDate: formatDate(usageInfo.endDate),
-      orgTotalTokensUsed: standardUsage.orgTotalTokensUsed,
-      totalAllowance: standardUsage.totalAllowance,
-      usedRatio: standardUsage.usedRatio,
-    };
-  } catch (error) {
-    console.error(`Failed to process key ID ${id}:`, error);
-    return { id, key: `${key.substring(0, 4)}...`, error: 'Failed to fetch' };
-  }
+        const apiData = await response.json();
+        if (!apiData.usage || !apiData.usage.standard) {
+            return { id, key: `${key.substring(0, 4)}...`, error: 'Invalid API response structure' };
+        }
+
+        const usageInfo = apiData.usage;
+        const standardUsage = usageInfo.standard;
+
+        const formatDate = (timestamp: number) => {
+            if (!timestamp && timestamp !== 0) return 'N/A';
+            try {
+                return new Date(timestamp).toISOString().split('T')[0];
+            } catch (e) {
+                return 'Invalid Date';
+            }
+        }
+
+        const maskedKey = `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
+        return {
+            id,
+            key: maskedKey,
+            startDate: formatDate(usageInfo.startDate),
+            endDate: formatDate(usageInfo.endDate),
+            orgTotalTokensUsed: standardUsage.orgTotalTokensUsed,
+            totalAllowance: standardUsage.totalAllowance,
+            usedRatio: standardUsage.usedRatio,
+        };
+    } catch (error) {
+        console.error(`Failed to process key ID ${id}:`, error);
+        return { id, key: `${key.substring(0, 4)}...`, error: 'Failed to fetch' };
+    }
 }
 
 async function getAggregatedData() {
-  const keyEntries = await getAllApiKeys();
+    const keyEntries = await getAllApiKeys();
 
-  if (keyEntries.length === 0) {
-    throw new Error("No API keys found in storage. Please import keys first.");
-  }
+    if (keyEntries.length === 0) {
+        throw new Error("No API keys found in storage. Please import keys first.");
+    }
 
-  const results = await Promise.all(keyEntries.map(entry => fetchApiKeyData(entry.id, entry.key)));
-  const validResults = results.filter(r => !r.error);
+    const results = await Promise.all(keyEntries.map(entry => fetchApiKeyData(entry.id, entry.key)));
+    const validResults = results.filter(r => !r.error);
 
-  const totals = validResults.reduce((acc, res) => {
-    acc.total_orgTotalTokensUsed += res.orgTotalTokensUsed || 0;
-    acc.total_totalAllowance += res.totalAllowance || 0;
-    return acc;
-  }, {
-    total_orgTotalTokensUsed: 0,
-    total_totalAllowance: 0,
-  });
-
-  const beijingTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
-
-  const keysWithBalance = validResults.filter(r => {
-    const remaining = (r.totalAllowance || 0) - (r.orgTotalTokensUsed || 0);
-    return remaining > 0;
-  });
-
-  if (keysWithBalance.length > 0) {
-    console.log("\n" + "=".repeat(80));
-    console.log("📋 剩余额度大于0的API Keys:");
-    console.log("-".repeat(80));
-    keysWithBalance.forEach(item => {
-      const originalEntry = keyEntries.find(e => e.id === item.id);
-      if (originalEntry) {
-        console.log(originalEntry.key);
-      }
+    const totals = validResults.reduce((acc, res) => {
+        acc.total_orgTotalTokensUsed += res.orgTotalTokensUsed || 0;
+        acc.total_totalAllowance += res.totalAllowance || 0;
+        return acc;
+    }, {
+        total_orgTotalTokensUsed: 0,
+        total_totalAllowance: 0,
     });
-    console.log("=".repeat(80) + "\n");
-  } else {
-    console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
-  }
 
-  return {
-    update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
-    total_count: keyEntries.length,
-    totals,
-    data: results,
-  };
+    const beijingTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
+
+    const keysWithBalance = validResults.filter(r => {
+        const remaining = (r.totalAllowance || 0) - (r.orgTotalTokensUsed || 0);
+        return remaining > 0;
+    });
+
+    if (keysWithBalance.length > 0) {
+        console.log("\n" + "=".repeat(80));
+        console.log("📋 剩余额度大于0的API Keys:");
+        console.log("-".repeat(80));
+        keysWithBalance.forEach(item => {
+            const originalEntry = keyEntries.find(e => e.id === item.id);
+            if (originalEntry) {
+                console.log(originalEntry.key);
+            }
+        });
+        console.log("=".repeat(80) + "\n");
+    } else {
+        console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
+    }
+
+    return {
+        update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
+        total_count: keyEntries.length,
+        totals,
+        data: results,
+    };
 }
 
 // Main HTTP request handler
 async function handler(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const headers = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
+    const url = new URL(req.url);
+    const headers = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+    };
 
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers });
-  }
-
-  // Login endpoint
-  if (url.pathname === "/api/login" && req.method === "POST") {
-    try {
-      const body = await req.json();
-      const { password } = body;
-
-      if (password === ADMIN_PASSWORD) {
-        const sessionId = await createSession();
-        const response = new Response(JSON.stringify({ success: true }), { headers });
-
-        setCookie(response.headers, {
-          name: "session",
-          value: sessionId,
-          maxAge: 7 * 24 * 60 * 60, // 7 days
-          path: "/",
-          httpOnly: true,
-          secure: true,
-          sameSite: "Lax",
-        });
-
-        return response;
-      } else {
-        return new Response(JSON.stringify({ error: "Invalid password" }), {
-          status: 401,
-          headers,
-        });
-      }
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers,
-      });
+    // Handle CORS preflight
+    if (req.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers });
     }
-  }
 
-  // Show login page if password is set and not authenticated
-  if (ADMIN_PASSWORD && url.pathname === "/") {
+    // Login endpoint
+    if (url.pathname === "/api/login" && req.method === "POST") {
+        try {
+            const body = await req.json();
+            const { password } = body;
+
+            if (password === ADMIN_PASSWORD) {
+                const sessionId = await createSession();
+                const response = new Response(JSON.stringify({ success: true }), { headers });
+
+                setCookie(response.headers, {
+                    name: "session",
+                    value: sessionId,
+                    maxAge: 7 * 24 * 60 * 60, // 7 days
+                    path: "/",
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: "Lax",
+                });
+
+                return response;
+            } else {
+                return new Response(JSON.stringify({ error: "Invalid password" }), {
+                    status: 401,
+                    headers,
+                });
+            }
+        } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers,
+            });
+        }
+    }
+
+    // Show login page if password is set and not authenticated
+    if (ADMIN_PASSWORD && url.pathname === "/") {
+        const authenticated = await isAuthenticated(req);
+        if (!authenticated) {
+            return new Response(LOGIN_PAGE, {
+                headers: { "Content-Type": "text/html; charset=utf-8" }
+            });
+        }
+    }
+
+    // Home page
+    if (url.pathname === "/") {
+        return new Response(HTML_CONTENT, {
+            headers: { "Content-Type": "text/html; charset=utf-8" }
+        });
+    }
+
+    // Protected routes - require authentication
     const authenticated = await isAuthenticated(req);
-    if (!authenticated) {
-      return new Response(LOGIN_PAGE, {
-        headers: { "Content-Type": "text/html; charset=utf-8" }
-      });
-    }
-  }
-
-  // Home page
-  if (url.pathname === "/") {
-    return new Response(HTML_CONTENT, {
-      headers: { "Content-Type": "text/html; charset=utf-8" }
-    });
-  }
-
-  // Protected routes - require authentication
-  const authenticated = await isAuthenticated(req);
-  if (ADMIN_PASSWORD && !authenticated) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers,
-    });
-  }
-
-  // Get usage data
-  if (url.pathname === "/api/data") {
-    try {
-      const data = await getAggregatedData();
-      return new Response(JSON.stringify(data), { headers });
-    } catch (error) {
-      console.error(error);
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers,
-      });
-    }
-  }
-
-  // Get all keys
-  if (url.pathname === "/api/keys" && req.method === "GET") {
-    try {
-      const keys = await getAllApiKeys();
-      const safeKeys = keys.map(k => ({
-        id: k.id,
-        name: k.name,
-        createdAt: k.createdAt,
-        masked: `${k.key.substring(0, 4)}...${k.key.substring(k.key.length - 4)}`
-      }));
-      return new Response(JSON.stringify(safeKeys), { headers });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers,
-      });
-    }
-  }
-
-  // Batch import keys
-  if (url.pathname === "/api/keys/import" && req.method === "POST") {
-    try {
-      const body = await req.json();
-      const keys = body.keys as string[];
-
-      if (!Array.isArray(keys)) {
-        return new Response(JSON.stringify({ error: "Invalid request: 'keys' must be an array" }), {
-          status: 400,
-          headers,
+    if (ADMIN_PASSWORD && !authenticated) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers,
         });
-      }
-
-      const result = await batchImportKeys(keys);
-      return new Response(JSON.stringify(result), { headers });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers,
-      });
     }
-  }
 
-  // Get full API key by ID
-  if (url.pathname.match(/^\/api\/keys\/[^\/]+\/full$/) && req.method === "GET") {
-    try {
-      const parts = url.pathname.split("/");
-      const id = parts[3];
-      if (!id) {
-        return new Response(JSON.stringify({ error: "Key ID required" }), {
-          status: 400,
-          headers,
-        });
-      }
-
-      const keyEntry = await getApiKey(id);
-      if (!keyEntry) {
-        return new Response(JSON.stringify({ error: "Key not found" }), {
-          status: 404,
-          headers,
-        });
-      }
-
-      return new Response(JSON.stringify({ id: keyEntry.id, key: keyEntry.key }), { headers });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers,
-      });
+    // Get usage data
+    if (url.pathname === "/api/data") {
+        try {
+            const data = await getAggregatedData();
+            return new Response(JSON.stringify(data), { headers });
+        } catch (error) {
+            console.error(error);
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers,
+            });
+        }
     }
-  }
 
-  // Batch delete keys
-  if (url.pathname === "/api/keys/batch-delete" && req.method === "POST") {
-    try {
-      const body = await req.json();
-      const ids = body.ids as string[];
-
-      if (!Array.isArray(ids) || ids.length === 0) {
-        return new Response(JSON.stringify({ error: "Invalid request: 'ids' must be a non-empty array" }), {
-          status: 400,
-          headers,
-        });
-      }
-
-      const result = await batchDeleteKeys(ids);
-      return new Response(JSON.stringify(result), { headers });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers,
-      });
+    // Get all keys
+    if (url.pathname === "/api/keys" && req.method === "GET") {
+        try {
+            const keys = await getAllApiKeys();
+            const safeKeys = keys.map(k => ({
+                id: k.id,
+                name: k.name,
+                createdAt: k.createdAt,
+                masked: `${k.key.substring(0, 4)}...${k.key.substring(k.key.length - 4)}`
+            }));
+            return new Response(JSON.stringify(safeKeys), { headers });
+        } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers,
+            });
+        }
     }
-  }
 
-  // Delete a key
-  if (url.pathname.startsWith("/api/keys/") && req.method === "DELETE") {
-    try {
-      const id = url.pathname.split("/").pop();
-      if (!id || id === "batch-delete") {
-        return new Response(JSON.stringify({ error: "Key ID required" }), {
-          status: 400,
-          headers,
-        });
-      }
+    // Batch import keys
+    if (url.pathname === "/api/keys/import" && req.method === "POST") {
+        try {
+            const body = await req.json();
+            const keys = body.keys as string[];
 
-      await deleteApiKey(id);
-      return new Response(JSON.stringify({ success: true }), { headers });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers,
-      });
+            if (!Array.isArray(keys)) {
+                return new Response(JSON.stringify({ error: "Invalid request: 'keys' must be an array" }), {
+                    status: 400,
+                    headers,
+                });
+            }
+
+            const result = await batchImportKeys(keys);
+            return new Response(JSON.stringify(result), { headers });
+        } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers,
+            });
+        }
     }
-  }
 
-  // Add a single key
-  if (url.pathname === "/api/keys" && req.method === "POST") {
-    try {
-      const body = await req.json();
-      const { key, name } = body;
+    // Get full API key by ID
+    if (url.pathname.match(/^\/api\/keys\/[^\/]+\/full$/) && req.method === "GET") {
+        try {
+            const parts = url.pathname.split("/");
+            const id = parts[3];
+            if (!id) {
+                return new Response(JSON.stringify({ error: "Key ID required" }), {
+                    status: 400,
+                    headers,
+                });
+            }
 
-      if (!key) {
-        return new Response(JSON.stringify({ error: "Key is required" }), {
-          status: 400,
-          headers,
-        });
-      }
+            const keyEntry = await getApiKey(id);
+            if (!keyEntry) {
+                return new Response(JSON.stringify({ error: "Key not found" }), {
+                    status: 404,
+                    headers,
+                });
+            }
 
-      const id = `key-${Date.now()}`;
-      await saveApiKey(id, key, name);
-      return new Response(JSON.stringify({ success: true, id }), { headers });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers,
-      });
+            return new Response(JSON.stringify({ id: keyEntry.id, key: keyEntry.key }), { headers });
+        } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers,
+            });
+        }
     }
-  }
 
-  return new Response("Not Found", { status: 404 });
+    // Batch delete keys
+    if (url.pathname === "/api/keys/batch-delete" && req.method === "POST") {
+        try {
+            const body = await req.json();
+            const ids = body.ids as string[];
+
+            if (!Array.isArray(ids) || ids.length === 0) {
+                return new Response(JSON.stringify({ error: "Invalid request: 'ids' must be a non-empty array" }), {
+                    status: 400,
+                    headers,
+                });
+            }
+
+            const result = await batchDeleteKeys(ids);
+            return new Response(JSON.stringify(result), { headers });
+        } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers,
+            });
+        }
+    }
+
+    // Delete a key
+    if (url.pathname.startsWith("/api/keys/") && req.method === "DELETE") {
+        try {
+            const id = url.pathname.split("/").pop();
+            if (!id || id === "batch-delete") {
+                return new Response(JSON.stringify({ error: "Key ID required" }), {
+                    status: 400,
+                    headers,
+                });
+            }
+
+            await deleteApiKey(id);
+            return new Response(JSON.stringify({ success: true }), { headers });
+        } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers,
+            });
+        }
+    }
+
+    // Add a single key
+    if (url.pathname === "/api/keys" && req.method === "POST") {
+        try {
+            const body = await req.json();
+            const { key, name } = body;
+
+            if (!key) {
+                return new Response(JSON.stringify({ error: "Key is required" }), {
+                    status: 400,
+                    headers,
+                });
+            }
+
+            const id = `key-${Date.now()}`;
+            await saveApiKey(id, key, name);
+            return new Response(JSON.stringify({ success: true, id }), { headers });
+        } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers,
+            });
+        }
+    }
+
+    return new Response("Not Found", { status: 404 });
 }
 
 console.log("🚀 Server running on http://localhost:8000");
