@@ -662,25 +662,25 @@ const HTML_CONTENT = `
             const totals = data.totals;
             const ratio = totals.total_totalAllowance ? (totals.total_totalAllowance - totals.total_tokensRemaining) / totals.total_totalAllowance : 0;
             
-            document.getElementById('statsCards').innerHTML = `
+            document.getElementById('statsCards').innerHTML = \`
                 <div class="card">
                     <div class="card-label">Total Allowance</div>
-                    <div class="card-value">${formatNumber(totals.total_totalAllowance)}</div>
+                    <div class="card-value">\${formatNumber(totals.total_totalAllowance)}</div>
                 </div>
                 <div class="card">
                     <div class="card-label">Used</div>
-                    <div class="card-value">${formatNumber(totals.total_orgTotalTokensUsed)}</div>
+                    <div class="card-value">\${formatNumber(totals.total_orgTotalTokensUsed)}</div>
                 </div>
                 <div class="card">
                     <div class="card-label">Remaining</div>
-                    <div class="card-value" style="color: var(--success);">${formatNumber(totals.total_tokensRemaining)}</div>
+                    <div class="card-value" style="color: var(--success);">\${formatNumber(totals.total_tokensRemaining)}</div>
                 </div>
                 <div class="card">
                     <div class="card-label">Usage</div>
-                    <div class="card-value">${formatPercent(ratio)}</div>
-                    <div class="progress-bar"><div class="progress-fill" style="width: ${Math.min(ratio * 100, 100)}%"></div></div>
+                    <div class="card-value">\${formatPercent(ratio)}</div>
+                    <div class="progress-bar"><div class="progress-fill" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>
                 </div>
-            `;
+            \`;
             renderTable();
         }
 
@@ -696,42 +696,42 @@ const HTML_CONTENT = `
             
             // Total Row
             const t = allData.totals;
-            html += `<tr style="background: rgba(0,122,255,0.05); font-weight: 700;">
+            html += \`<tr style="background: rgba(0,122,255,0.05); font-weight: 700;">
                 <td>TOTAL</td><td></td><td></td><td></td>
-                <td style="text-align: right">${formatNumber(t.total_totalAllowance)}</td>
-                <td style="text-align: right">${formatNumber(t.total_orgTotalTokensUsed)}</td>
-                <td style="text-align: right">${formatNumber(t.total_tokensRemaining)}</td>
+                <td style="text-align: right">\${formatNumber(t.total_totalAllowance)}</td>
+                <td style="text-align: right">\${formatNumber(t.total_orgTotalTokensUsed)}</td>
+                <td style="text-align: right">\${formatNumber(t.total_tokensRemaining)}</td>
                 <td></td>
-            </tr>`;
+            </tr>\`;
 
             pageData.forEach(row => {
                 if(row.error) {
-                    html += `<tr><td class="mono">${row.id}</td><td colspan="6" style="color: var(--danger)">${row.error}</td><td><button class="btn btn-secondary btn-icon" onclick="deleteKey('${row.id}')">🗑</button></td></tr>`;
+                    html += \`<tr><td class="mono">\${row.id}</td><td colspan="6" style="color: var(--danger)">\${row.error}</td><td><button class="btn btn-secondary btn-icon" onclick="deleteKey('\${row.id}')">🗑</button></td></tr>\`;
                 } else {
-                    html += `<tr>
-                        <td class="mono" style="color: var(--text-secondary)">${row.id}</td>
-                        <td class="mono">${row.key}</td>
-                        <td class="mono" style="font-size: 12px">${row.startDate}</td>
-                        <td class="mono" style="font-size: 12px">${row.endDate}</td>
-                        <td class="mono" style="text-align: right">${formatNumber(row.totalAllowance)}</td>
-                        <td class="mono" style="text-align: right">${formatNumber(row.orgTotalTokensUsed)}</td>
-                        <td class="mono" style="text-align: right; color: var(--success)">${formatNumber(row.totalAllowance - row.orgTotalTokensUsed)}</td>
+                    html += \`<tr>
+                        <td class="mono" style="color: var(--text-secondary)">\${row.id}</td>
+                        <td class="mono">\${row.key}</td>
+                        <td class="mono" style="font-size: 12px">\${row.startDate}</td>
+                        <td class="mono" style="font-size: 12px">\${row.endDate}</td>
+                        <td class="mono" style="text-align: right">\${formatNumber(row.totalAllowance)}</td>
+                        <td class="mono" style="text-align: right">\${formatNumber(row.orgTotalTokensUsed)}</td>
+                        <td class="mono" style="text-align: right; color: var(--success)">\${formatNumber(row.totalAllowance - row.orgTotalTokensUsed)}</td>
                         <td style="text-align: right">
-                            <button class="btn btn-secondary btn-icon" style="width: 28px; height: 28px;" onclick="copyKey('${row.key}')">📋</button>
-                            <button class="btn btn-secondary btn-icon" style="width: 28px; height: 28px; color: var(--danger)" onclick="deleteKey('${row.id}')">✕</button>
+                            <button class="btn btn-secondary btn-icon" style="width: 28px; height: 28px;" onclick="copyKey('\${row.key}')">📋</button>
+                            <button class="btn btn-secondary btn-icon" style="width: 28px; height: 28px; color: var(--danger)" onclick="deleteKey('\${row.id}')">✕</button>
                         </td>
-                    </tr>`;
+                    </tr>\`;
                 }
             });
             html += '</tbody></table>';
             
             // Pagination
             if(itemsPerPage !== 'all' && Math.ceil(total / itemsPerPage) > 1) {
-                 html += `<div style="padding: 20px; display: flex; justify-content: center; gap: 10px;">
-                    <button class="btn btn-secondary" onclick="changePage(-1)" ${currentPage === 1 ? 'disabled' : ''}>Prev</button>
-                    <span style="display: flex; align-items: center; color: var(--text-secondary);">Page ${currentPage}</span>
-                    <button class="btn btn-secondary" onclick="changePage(1)" ${currentPage * itemsPerPage >= total ? 'disabled' : ''}>Next</button>
-                 </div>`;
+                 html += \`<div style="padding: 20px; display: flex; justify-content: center; gap: 10px;">
+                    <button class="btn btn-secondary" onclick="changePage(-1)" \${currentPage === 1 ? 'disabled' : ''}>Prev</button>
+                    <span style="display: flex; align-items: center; color: var(--text-secondary);">Page \${currentPage}</span>
+                    <button class="btn btn-secondary" onclick="changePage(1)" \${currentPage * itemsPerPage >= total ? 'disabled' : ''}>Next</button>
+                 </div>\`;
             }
 
             document.getElementById('tableContent').innerHTML = html;
@@ -765,7 +765,7 @@ const HTML_CONTENT = `
                 await fetch('/api/keys/' + k.id, { method: 'DELETE' });
             }
             loadData();
-            showToast(`Cleared ${toDelete.length} keys`);
+            showToast(\`Cleared \${toDelete.length} keys\`);
         }
 
         function toggleManagePanel() {
@@ -784,7 +784,7 @@ const HTML_CONTENT = `
                 body: JSON.stringify({ keys })
             });
             const d = await res.json();
-            showToast(`Imported: ${d.success}`);
+            showToast(\`Imported: \${d.success}\`);
             document.getElementById('importKeys').value = '';
             toggleManagePanel();
             loadData();
