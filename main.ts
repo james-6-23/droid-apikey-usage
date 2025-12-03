@@ -1,1334 +1,514 @@
-// main.ts - Optimized by Apple Senior Engineer
+// main.ts
 import { serve } from "https://deno.land/std@0.182.0/http/server.ts";
 import { format } from "https://deno.land/std@0.182.0/datetime/mod.ts";
-import { setCookie, getCookies } from "https://deno.land/std@0.182.0/http/cookie.ts";
 
-// Initialize Deno KV
+// ==================== Type Definitions ====================
+
+interface ApiKey {
+  id: string;
+  key: string;
+}
+
+interface ApiUsageData {
+  id: string;
+  key: string;
+  startDate: string;
+  endDate: string;
+  orgTotalTokensUsed: number;
+  totalAllowance: number;
+  usedRatio: number;
+}
+
+interface ApiErrorData {
+  id: string;
+  key: string;
+  error: string;
+}
+
+type ApiKeyResult = ApiUsageData | ApiErrorData;
+
+interface UsageTotals {
+  total_orgTotalTokensUsed: number;
+  total_totalAllowance: number;
+  totalRemaining: number;
+}
+
+interface AggregatedResponse {
+  update_time: string;
+  total_count: number;
+  totals: UsageTotals;
+  data: ApiKeyResult[];
+}
+
+interface ApiResponse {
+  usage: {
+    startDate: number;
+    endDate: number;
+    standard: {
+      orgTotalTokensUsed: number;
+      totalAllowance: number;
+      usedRatio: number;
+    };
+  };
+}
+
+interface BatchImportResult {
+  success: boolean;
+  added: number;
+  skipped: number;
+}
+
+// ==================== Configuration ====================
+
+const CONFIG = {
+  PORT: 8000,
+  API_ENDPOINT: 'https://app.factory.ai/api/organization/members/chat-usage',
+  USER_AGENT: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+  TIMEZONE_OFFSET_HOURS: 8, // Beijing time
+  KEY_MASK_PREFIX_LENGTH: 4,
+  KEY_MASK_SUFFIX_LENGTH: 4,
+  AUTO_REFRESH_INTERVAL_SECONDS: 60, // Set auto-refresh interval to 60 seconds
+  EXPORT_PASSWORD: Deno.env.get("EXPORT_PASSWORD") || "admin123", // Default password for key export
+} as const;
+
+// ==================== Server State and Caching (NEW) ====================
+
+class ServerState {
+  private cachedData: AggregatedResponse | null = null;
+  private lastError: string | null = null;
+  private isUpdating = false;
+
+  getData = () => this.cachedData;
+  getError = () => this.lastError;
+  isCurrentlyUpdating = () => this.isUpdating;
+  
+  updateCache(data: AggregatedResponse) {
+    this.cachedData = data;
+    this.lastError = null;
+    this.isUpdating = false;
+  }
+
+  setError(errorMessage: string) {
+    this.lastError = errorMessage;
+    this.isUpdating = false;
+  }
+  
+  startUpdate() {
+    this.isUpdating = true;
+  }
+}
+
+const serverState = new ServerState();
+
+
+// ==================== Database Initialization ====================
+
 const kv = await Deno.openKv();
 
-// Get admin password from environment variable
-const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD");
+// ==================== Database Operations ====================
 
-console.log(`🔒 Password Protection: ${ADMIN_PASSWORD ? 'ENABLED' : 'DISABLED'}`);
+async function getAllKeys(): Promise<ApiKey[]> {
+  const keys: ApiKey[] = [];
+  const entries = kv.list<string>({ prefix: ["api_keys"] });
 
-// Session Management
-interface Session {
-    id: string;
-    createdAt: number;
-    expiresAt: number;
+  for await (const entry of entries) {
+    const id = entry.key[1] as string;
+    keys.push({ id, key: entry.value });
+  }
+
+  return keys;
 }
 
-async function createSession(): Promise<string> {
-    const sessionId = crypto.randomUUID();
-    const session: Session = {
-        id: sessionId,
-        createdAt: Date.now(),
-        expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
-    };
-    await kv.set(["sessions", sessionId], session);
-    return sessionId;
+async function addKey(id: string, key: string): Promise<void> {
+  await kv.set(["api_keys", id], key);
 }
 
-async function validateSession(sessionId: string): Promise<boolean> {
-    const result = await kv.get<Session>(["sessions", sessionId]);
-    if (!result.value) return false;
-
-    const session = result.value;
-    if (Date.now() > session.expiresAt) {
-        await kv.delete(["sessions", sessionId]);
-        return false;
-    }
-
-    return true;
+async function deleteKey(id: string): Promise<void> {
+  await kv.delete(["api_keys", id]);
 }
 
-async function isAuthenticated(req: Request): Promise<boolean> {
-    // If no password is set, allow access
-    if (!ADMIN_PASSWORD) return true;
-
-    const cookies = getCookies(req.headers);
-    const sessionId = cookies.session;
-
-    if (!sessionId) return false;
-
-    return await validateSession(sessionId);
+async function apiKeyExists(key: string): Promise<boolean> {
+  const keys = await getAllKeys();
+  return keys.some(k => k.key === key);
 }
 
-// KV Storage Interface
-interface ApiKeyEntry {
-    id: string;
-    key: string;
-    name?: string;
-    createdAt: number;
+// ==================== Utility Functions ====================
+
+function maskApiKey(key: string): string {
+  if (key.length <= CONFIG.KEY_MASK_PREFIX_LENGTH + CONFIG.KEY_MASK_SUFFIX_LENGTH) {
+    return `${key.substring(0, CONFIG.KEY_MASK_PREFIX_LENGTH)}...`;
+  }
+  return `${key.substring(0, CONFIG.KEY_MASK_PREFIX_LENGTH)}...${key.substring(key.length - CONFIG.KEY_MASK_SUFFIX_LENGTH)}`;
 }
 
-// KV Database Functions
-async function saveApiKey(id: string, key: string, name?: string): Promise<void> {
-    const entry: ApiKeyEntry = {
-        id,
-        key,
-        name: name || `Key ${id}`,
-        createdAt: Date.now(),
-    };
-    await kv.set(["apikeys", id], entry);
+function formatDate(timestamp: number | null | undefined): string {
+  if (!timestamp && timestamp !== 0) return 'N/A';
+
+  try {
+    return new Date(timestamp).toISOString().split('T')[0];
+  } catch {
+    return 'Invalid Date';
+  }
 }
 
-async function getApiKey(id: string): Promise<ApiKeyEntry | null> {
-    const result = await kv.get<ApiKeyEntry>(["apikeys", id]);
-    return result.value;
+function getBeijingTime(): Date {
+  return new Date(Date.now() + CONFIG.TIMEZONE_OFFSET_HOURS * 60 * 60 * 1000);
 }
 
-async function getAllApiKeys(): Promise<ApiKeyEntry[]> {
-    const entries: ApiKeyEntry[] = [];
-    const iter = kv.list<ApiKeyEntry>({ prefix: ["apikeys"] });
-    for await (const entry of iter) {
-        entries.push(entry.value);
-    }
-    return entries;
+function createJsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
-async function deleteApiKey(id: string): Promise<void> {
-    await kv.delete(["apikeys", id]);
+function createErrorResponse(message: string, status = 500): Response {
+  return createJsonResponse({ error: message }, status);
 }
 
-async function batchImportKeys(keys: string[]): Promise<{ success: number; failed: number; duplicates: number }> {
-    let success = 0;
-    let failed = 0;
-    let duplicates = 0;
-
-    // 获取所有现有的API Keys
-    const existingKeys = await getAllApiKeys();
-    const existingKeySet = new Set(existingKeys.map(k => k.key));
-
-    for (let i = 0; i < keys.length; i++) {
-        const key = keys[i].trim();
-        if (key.length > 0) {
-            try {
-                // 检查是否已存在
-                if (existingKeySet.has(key)) {
-                    duplicates++;
-                    console.log(`Skipped duplicate key: ${key.substring(0, 10)}...`);
-                    continue;
-                }
-
-                const id = `key-${Date.now()}-${i}`;
-                await saveApiKey(id, key);
-                existingKeySet.add(key); // 添加到集合中防止本批次内重复
-                success++;
-            } catch (error) {
-                failed++;
-                console.error(`Failed to import key ${i}:`, error);
-            }
-        }
-    }
-
-    return { success, failed, duplicates };
-}
-
-async function batchDeleteKeys(ids: string[]): Promise<{ success: number; failed: number }> {
-    let success = 0;
-    let failed = 0;
-
-    for (const id of ids) {
-        try {
-            await deleteApiKey(id);
-            success++;
-        } catch (error) {
-            failed++;
-            console.error(`Failed to delete key ${id}:`, error);
-        }
-    }
-
-    return { success, failed };
-}
-
-// Login Page HTML
-const LOGIN_PAGE = `
+// HTML content is embedded as a template string
+const HTML_CONTENT = `  
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录 - API 余额监控看板</title>
+    <title>API 余额监控看板</title>  
     <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #8b5cf6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --bg-dark: #0f172a;
+            --bg-card: rgba(255, 255, 255, 0.95);
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border: rgba(148, 163, 184, 0.2);
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', sans-serif;
-            background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
-            min-height: 100vh;
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif; 
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%);
+            min-height: 100vh; 
+            padding: 24px;
+            background-attachment: fixed;
+        }
+        .container { 
+            max-width: 1600px; 
+            margin: 0 auto; 
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border-radius: 24px; 
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .header { 
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); 
+            color: white; 
+            padding: 32px 40px; 
+            position: relative;
+        }
+        .header-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+        .header-left h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px; }
+        .header-left .update-time { font-size: 13px; opacity: 0.85; font-weight: 500; }
+        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        .header-btn { 
+            background: rgba(255, 255, 255, 0.15); 
+            color: white; 
+            border: 1px solid rgba(255, 255, 255, 0.3); 
+            border-radius: 10px; 
+            padding: 10px 18px; 
+            font-size: 13px; 
+            font-weight: 600;
+            cursor: pointer; 
+            transition: all 0.2s ease;
             display: flex;
             align-items: center;
-            justify-content: center;
-            padding: 24px;
+            gap: 6px;
+            backdrop-filter: blur(10px);
         }
-
-        .login-container {
-            background: white;
-            border-radius: 24px;
-            padding: 48px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 400px;
-            width: 100%;
-            animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        .header-btn:hover { background: rgba(255, 255, 255, 0.25); transform: translateY(-1px); }
+        .header-btn:active { transform: translateY(0); }
+        .header-btn.danger { background: rgba(239, 68, 68, 0.3); border-color: rgba(239, 68, 68, 0.5); }
+        .header-btn.danger:hover { background: rgba(239, 68, 68, 0.4); }
+        .header-btn.success { background: rgba(16, 185, 129, 0.3); border-color: rgba(16, 185, 129, 0.5); }
+        .header-btn.success:hover { background: rgba(16, 185, 129, 0.4); }
+        .stats-cards { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
+            gap: 20px; 
+            padding: 28px 40px; 
+            background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
         }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(40px) scale(0.95);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        .login-icon {
-            font-size: 64px;
-            text-align: center;
-            margin-bottom: 24px;
-        }
-
-        h1 {
-            font-size: 28px;
-            font-weight: 700;
-            text-align: center;
-            color: #1D1D1F;
-            margin-bottom: 12px;
-            letter-spacing: -0.5px;
-        }
-
-        p {
-            text-align: center;
-            color: #86868B;
-            margin-bottom: 32px;
-            font-size: 15px;
-        }
-
-        .form-group {
-            margin-bottom: 24px;
-        }
-
-        label {
-            display: block;
-            font-size: 13px;
-            font-weight: 600;
-            color: #1D1D1F;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-
-        input[type="password"] {
-            width: 100%;
-            padding: 16px;
-            border: 1.5px solid rgba(0, 0, 0, 0.06);
-            border-radius: 12px;
-            font-size: 16px;
-            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-
-        input[type="password"]:focus {
-            outline: none;
-            border-color: #007AFF;
-            box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1);
-        }
-
-        .login-btn {
-            width: 100%;
-            padding: 16px;
-            background: #007AFF;
-            color: white;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .login-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
-        }
-
-        .login-btn:active {
-            transform: translateY(0);
-        }
-
-        .error-message {
-            background: rgba(255, 59, 48, 0.1);
-            color: #FF3B30;
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-            margin-bottom: 16px;
-            border: 1px solid rgba(255, 59, 48, 0.2);
-            display: none;
-        }
-
-        .error-message.show {
-            display: block;
-            animation: shake 0.4s;
-        }
-
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-10px); }
-            75% { transform: translateX(10px); }
-        }
-    </style>
-</head>
-<body>
-    <div class="login-container">
-        <div class="login-icon">🔐</div>
-        <h1>欢迎回来</h1>
-        <p>请输入管理员密码以访问系统</p>
-
-        <div class="error-message" id="errorMessage">
-            密码错误，请重试
-        </div>
-
-        <form onsubmit="handleLogin(event)">
-            <div class="form-group">
-                <label for="password">密码</label>
-                <input
-                    type="password"
-                    id="password"
-                    placeholder="输入密码"
-                    autocomplete="current-password"
-                    required
-                >
-            </div>
-
-            <button type="submit" class="login-btn">
-                登录
-            </button>
-        </form>
-    </div>
-
-    <script>
-        async function handleLogin(event) {
-            event.preventDefault();
-
-            const password = document.getElementById('password').value;
-            const errorMessage = document.getElementById('errorMessage');
-
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ password }),
-                });
-
-                if (response.ok) {
-                    window.location.href = '/';
-                } else {
-                    errorMessage.classList.add('show');
-                    document.getElementById('password').value = '';
-                    document.getElementById('password').focus();
-
-                    setTimeout(() => {
-                        errorMessage.classList.remove('show');
-                    }, 3000);
-                }
-            } catch (error) {
-                alert('登录失败: ' + error.message);
-            }
-        }
-    </script>
-</body>
-</html>
-`;
-
-// Main Application HTML (continued in next message due to length)
-const HTML_CONTENT = `
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Droid API 余额监控看板</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
-    <style>
-        /* Apple-inspired Design System with FiraCode */
-        :root {
-            --color-primary: #007AFF;
-            --color-secondary: #5856D6;
-            --color-success: #34C759;
-            --color-warning: #FF9500;
-            --color-danger: #FF3B30;
-            --color-bg: #F5F5F7;
-            --color-surface: #FFFFFF;
-            --color-text-primary: #1D1D1F;
-            --color-text-secondary: #86868B;
-            --color-border: rgba(0, 0, 0, 0.06);
-            --color-shadow: rgba(0, 0, 0, 0.08);
-            --radius-sm: 8px;
-            --radius-md: 12px;
-            --radius-lg: 18px;
-            --radius-xl: 24px;
-            --spacing-xs: 8px;
-            --spacing-sm: 12px;
-            --spacing-md: 16px;
-            --spacing-lg: 24px;
-            --spacing-xl: 32px;
-            --transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', sans-serif;
-            background: var(--color-bg);
-            min-height: 100vh;
-            padding: var(--spacing-lg);
-            color: var(--color-text-primary);
-            line-height: 1.5;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            text-rendering: optimizeLegibility;
-        }
-
-        /* FiraCode for code/numbers - Scale 1.25x and anti-aliasing */
-        .code-font, .key-cell, td.number, .key-masked, #importKeys {
-            font-family: 'Fira Code', 'SF Mono', 'Monaco', 'Courier New', monospace;
-            font-feature-settings: "liga" 1, "calt" 1;
-            -webkit-font-smoothing: subpixel-antialiased;
-            -moz-osx-font-smoothing: auto;
-            text-rendering: optimizeLegibility;
-        }
-
-        .container {
-            max-width: 2400px;
-            margin: 0 auto;
-            background: var(--color-surface);
-            border-radius: var(--radius-xl);
-            box-shadow: 0 8px 30px var(--color-shadow);
-            overflow: hidden;
-        }
-
-        .header {
-            position: relative;
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-            color: white;
-            padding: var(--spacing-xl) var(--spacing-lg);
-            text-align: center;
-        }
-
-        .header h1 {
-            font-size: 48px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-            margin-bottom: var(--spacing-xs);
-        }
-
-        .header .update-time {
-            font-size: 20px;
-            opacity: 0.85;
-            font-weight: 400;
-        }
-
-        .stats-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: var(--spacing-lg);
-            padding: var(--spacing-xl);
-            background: var(--color-bg);
-        }
-
-        .stat-card {
-            background: var(--color-surface);
-            border-radius: var(--radius-lg);
-            padding: calc(var(--spacing-lg) * 1.25);
-            text-align: center;
-            border: 1px solid var(--color-border);
-            transition: var(--transition);
+        .stat-card { 
+            background: white; 
+            border-radius: 16px; 
+            padding: 24px; 
+            text-align: center; 
+            box-shadow: var(--shadow);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid var(--border);
             position: relative;
             overflow: hidden;
         }
-
-        .stat-card:hover {
-            transform: translateY(-4px) scale(1.02);
-            box-shadow: 0 12px 40px var(--color-shadow);
-        }
-
-        .stat-card .label {
-            font-size: 18px;
-            color: var(--color-text-secondary);
-            margin-bottom: var(--spacing-sm);
-            font-weight: 500;
-            letter-spacing: 0.3px;
-            text-transform: uppercase;
-            position: relative;
-            z-index: 2;
-        }
-
-        .stat-card .value {
-            font-size: 56px;
-            font-weight: 600;
-            background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', sans-serif;
-            font-variant-numeric: tabular-nums;
-            position: relative;
-            z-index: 2;
-        }
-
-        /* 进度条背景 */
-        .stat-card .progress-background {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            height: 100%;
-            background: linear-gradient(135deg, rgba(0, 122, 255, 0.15) 0%, rgba(88, 86, 214, 0.15) 100%);
-            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 1;
-            border-radius: var(--radius-lg);
-        }
-
-        .stat-card .progress-background::after {
+        .stat-card::before {
             content: '';
             position: absolute;
             top: 0;
-            right: 0;
-            width: 2px;
-            height: 100%;
-            background: linear-gradient(180deg, transparent 0%, rgba(0, 122, 255, 0.6) 50%, transparent 100%);
-            box-shadow: 0 0 8px rgba(0, 122, 255, 0.4);
-        }
-
-        .table-container {
-            padding: 0 var(--spacing-xl) var(--spacing-xl);
-            overflow-x: visible;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            background: var(--color-surface);
-            border-radius: var(--radius-md);
-            overflow: visible;
-            border: 1px solid rgba(0, 0, 0, 0.08);
-            margin-bottom: var(--spacing-xl);
-            table-layout: fixed;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-        }
-
-        thead {
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-            color: white;
-        }
-
-        th {
-            padding: 22px var(--spacing-md);
-            text-align: left;
-            font-weight: 700;
-            font-size: 13px;
-            white-space: nowrap;
-            letter-spacing: 0.8px;
-            text-transform: uppercase;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
-        }
-
-        th.number { text-align: right; }
-
-        /* 调整列宽 */
-        th:nth-child(1) { width: 50px; } /* 复选框 */
-        th:nth-child(2) { width: 5%; } /* ID */
-        th:nth-child(3) { width: 9%; } /* API Key */
-        th:nth-child(4) { width: 9%; } /* 开始时间 */
-        th:nth-child(5) { width: 9%; } /* 结束时间 */
-        th:nth-child(6) { width: 12%; } /* 总计额度 */
-        th:nth-child(7) { width: 12%; } /* 已使用 */
-        th:nth-child(8) { width: 12%; } /* 剩余额度 */
-        th:nth-child(9) { width: 10%; } /* 使用百分比 */
-        th:nth-child(10) { width: 10%; } /* 操作 */
-
-        td {
-            padding: 22px var(--spacing-md);
-            border-bottom: 1px solid var(--color-border);
-            font-size: 15px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            vertical-align: middle;
-        }
-
-        td.number {
-            text-align: right;
-            font-weight: 500;
-            font-variant-numeric: tabular-nums;
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', system-ui, sans-serif;
-            font-size: 18px;
-            letter-spacing: 0.3px;
-        }
-
-        td.error-row { color: var(--color-danger); }
-
-        tbody tr { 
-            transition: all 0.2s ease;
-            border-left: 3px solid transparent;
-        }
-        tbody tr:hover { 
-            background-color: rgba(0, 122, 255, 0.05);
-            border-left-color: var(--color-primary);
-        }
-        tbody tr:last-child td { border-bottom: none; }
-
-        /* 总计行样式 - 独特颜色 */
-        .total-row {
-            background: linear-gradient(135deg, rgba(0, 122, 255, 0.12) 0%, rgba(88, 86, 214, 0.12) 100%);
-            font-weight: 700;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            border-top: 2px solid var(--color-primary);
-            border-bottom: 3px solid var(--color-primary) !important;
-            box-shadow: 0 2px 8px rgba(0, 122, 255, 0.1);
-        }
-
-        .total-row td {
-            padding: 24px var(--spacing-md);
-            font-size: 16px;
-            color: var(--color-primary);
-            border-bottom: 3px solid var(--color-primary) !important;
-            font-weight: 700;
-            letter-spacing: 0.3px;
-        }
-
-        .total-row td.number {
-            font-size: 20px;
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'San Francisco', system-ui, sans-serif;
-            font-weight: 600;
-            letter-spacing: 0.3px;
-        }
-
-        /* 按钮组容器 */
-        .action-buttons {
-            display: flex;
-            gap: 8px;
-            justify-content: center;
-            align-items: center;
-        }
-
-        /* 按钮图标样式 */
-        .btn-icon {
-            width: 18px;
-            height: 18px;
-            display: inline-block;
-            vertical-align: middle;
-            filter: brightness(0) invert(1);
-        }
-
-        /* 复制按钮样式 */
-        .table-copy-btn {
-            background: var(--color-primary);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            white-space: nowrap;
-            box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 38px;
-            height: 38px;
-        }
-
-        .table-copy-btn:hover {
-            background: #0056D2;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
-        }
-
-        .table-copy-btn:active {
-            transform: translateY(0);
-        }
-
-        .table-copy-btn.copied {
-            background: var(--color-success);
-            box-shadow: 0 2px 6px rgba(52, 199, 89, 0.3);
-        }
-
-        /* 删除按钮样式 */
-        .table-delete-btn {
-            background: var(--color-danger);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            white-space: nowrap;
-            box-shadow: 0 2px 6px rgba(255, 59, 48, 0.2);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 38px;
-            height: 38px;
-        }
-
-        .table-delete-btn:hover {
-            background: #D32F2F;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);
-        }
-
-        .table-delete-btn:active {
-            transform: translateY(0);
-        }
-
-        /* 批量操作相关样式 */
-        .checkbox-cell {
-            width: 50px;
-            text-align: center;
-            padding: 22px 12px !important;
-        }
-
-        .checkbox-cell input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-            accent-color: var(--color-primary);
-        }
-
-        .batch-toolbar {
-            position: sticky;
-            top: 0;
-            z-index: 200;
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-            color: white;
-            padding: var(--spacing-md) var(--spacing-lg);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-md);
-            justify-content: space-between;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-            border-radius: var(--radius-md);
-            margin-bottom: var(--spacing-md);
-        }
-
-        .batch-toolbar-left {
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-md);
-        }
-
-        .batch-toolbar-right {
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-        }
-
-        .batch-count {
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .batch-btn {
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: var(--radius-sm);
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            white-space: nowrap;
-        }
-
-        .batch-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-2px);
-        }
-
-        .batch-btn.danger {
-            background: var(--color-danger);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-
-        .batch-btn.danger:hover {
-            background: #D32F2F;
-        }
-
-        /* Toast 提示样式 */
-        .toast {
-            position: fixed;
-            top: var(--spacing-xl);
-            right: var(--spacing-xl);
-            background: var(--color-surface);
-            color: var(--color-text-primary);
-            padding: var(--spacing-md) var(--spacing-lg);
-            border-radius: var(--radius-md);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            z-index: 10000;
-            animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s;
-            border-left: 4px solid var(--color-success);
-        }
-
-        .toast.error {
-            border-left-color: var(--color-danger);
-        }
-
-        @keyframes slideInRight {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        @keyframes fadeOut {
-            from { opacity: 1; }
-            to { opacity: 0; }
-        }
-
-        .toast-icon {
-            font-size: 20px;
-        }
-
-        .toast-message {
-            font-size: 15px;
-            font-weight: 500;
-        }
-
-        .key-cell {
-            font-size: 20px;
-            color: var(--color-text-secondary);
-            max-width: 200px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-family: 'Fira Code', monospace;
-            font-weight: 500;
-            background: rgba(0, 0, 0, 0.02);
-            padding: 8px 12px !important;
-            border-radius: 6px;
-        }
-
-        .id-cell {
-            font-size: 20px;
-            color: var(--color-text-secondary);
-            font-weight: 500;
-            font-family: 'Fira Code', monospace;
-        }
-
-        .date-cell {
-            font-size: 20px;
-            color: var(--color-text-primary);
-            font-weight: 400;
-        }
-
-        .refresh-btn {
-            position: fixed;
-            bottom: var(--spacing-xl);
-            right: var(--spacing-xl);
-            background: var(--color-primary);
-            color: white;
-            border: none;
-            border-radius: 100px;
-            padding: 16px 28px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 8px 24px rgba(0, 122, 255, 0.35);
-            transition: var(--transition);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-xs);
-            z-index: 100;
-        }
-
-        .refresh-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 32px rgba(0, 122, 255, 0.45);
-        }
-
-        .refresh-btn:active {
-            transform: translateY(-1px);
-        }
-
-        .clear-zero-btn {
-            position: fixed;
-            bottom: calc(var(--spacing-xl) + 70px);
-            right: var(--spacing-xl);
-            background: var(--color-danger);
-            color: white;
-            border: none;
-            border-radius: 100px;
-            padding: 16px 28px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 8px 24px rgba(255, 59, 48, 0.35);
-            transition: var(--transition);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-xs);
-            z-index: 100;
-        }
-
-        .clear-zero-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 32px rgba(255, 59, 48, 0.45);
-        }
-
-        .clear-zero-btn:active {
-            transform: translateY(-1px);
-        }
-
-        .loading {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--color-text-secondary);
-            font-size: 15px;
-        }
-
-        .error {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--color-danger);
-            font-size: 15px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 18px;
-            height: 18px;
-            border: 2.5px solid rgba(255, 255, 255, 0.25);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.8s linear infinite;
-        }
-
-        .manage-btn {
-            position: absolute;
-            top: var(--spacing-lg);
-            right: var(--spacing-lg);
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            border-radius: 100px;
-            padding: 10px 20px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-        .manage-btn:hover {
-            background: rgba(255, 255, 255, 0.25);
-            transform: scale(1.05);
-        }
-
-        .manage-panel {
-            position: fixed;
-            top: 0;
             left: 0;
             right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(10px);
-            z-index: 1000;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .stat-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+        .stat-card:hover::before { opacity: 1; }
+        .stat-card .icon { font-size: 32px; margin-bottom: 12px; }
+        .stat-card .label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-card .value { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .table-container { padding: 0 40px 40px 40px; overflow-x: auto; }
+        .table-wrapper { 
+            background: white; 
+            border-radius: 16px; 
+            overflow: hidden; 
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+        }
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); color: white; }
+        th { padding: 16px 20px; text-align: left; font-weight: 600; font-size: 13px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
+        th.number { text-align: right; }
+        td { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--text-primary); }
+        td.number { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+        td.error-row { color: var(--danger); font-weight: 500; }
+        tbody tr { transition: all 0.15s ease; }
+        tbody tr:hover { background: linear-gradient(90deg, rgba(99, 102, 241, 0.04), rgba(139, 92, 246, 0.04)); }
+        tbody tr:last-child td { border-bottom: none; }
+        .key-cell { 
+            font-family: 'SF Mono', 'Fira Code', monospace; 
+            color: var(--text-secondary); 
+            max-width: 180px; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            white-space: nowrap;
+            font-size: 13px;
+            background: #f8fafc;
+            padding: 6px 10px;
+            border-radius: 6px;
+            display: inline-block;
+        }
+        .loading { 
+            text-align: center; 
+            padding: 60px 40px; 
+            color: var(--text-secondary);
+        }
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        .error { text-align: center; padding: 60px 40px; color: var(--danger); }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 50%; border-top-color: white; animation: spin 0.8s linear infinite; }
+        
+        /* Floating refresh button */
+        .fab-refresh {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: var(--spacing-lg);
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        .manage-content {
-            background: var(--color-surface);
-            border-radius: var(--radius-xl);
-            max-width: 1000px;
-            width: 100%;
-            max-height: 85vh;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(40px) scale(0.95);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        .manage-header {
-            background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-            color: white;
-            padding: var(--spacing-lg) var(--spacing-xl);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .manage-header h2 {
-            margin: 0;
             font-size: 24px;
-            font-weight: 700;
-            letter-spacing: -0.3px;
         }
+        .fab-refresh:hover { transform: translateY(-4px) scale(1.05); box-shadow: 0 12px 32px rgba(99, 102, 241, 0.5); }
+        .fab-refresh:active { transform: translateY(-2px) scale(1.02); }
+        .fab-refresh .spinner { width: 24px; height: 24px; border-width: 3px; }
 
-        .close-btn {
-            position: absolute;
-            top: var(--spacing-md);
-            right: var(--spacing-md);
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            border: none;
-            color: white;
-            font-size: 22px;
-            cursor: pointer;
-            border-radius: 50%;
+        /* Modal styles */
+        .modal { 
+            display: none; 
+            position: fixed; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            background: rgba(15, 23, 42, 0.7); 
+            backdrop-filter: blur(4px);
+            z-index: 1000; 
+            align-items: center; 
+            justify-content: center;
+            animation: fadeIn 0.2s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .modal.show { display: flex; }
+        .modal-content { 
+            background: white; 
+            border-radius: 20px; 
+            width: 90%; 
+            max-width: 600px; 
+            max-height: 85vh; 
+            overflow: auto; 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            animation: slideUp 0.3s ease;
+        }
+        .modal-header { 
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); 
+            color: white; 
+            padding: 24px 32px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+        }
+        .modal-header h2 { font-size: 20px; font-weight: 700; }
+        .close-btn { 
+            background: rgba(255,255,255,0.2); 
+            border: none; 
+            color: white; 
             width: 36px;
             height: 36px;
+            border-radius: 50%;
+            font-size: 20px; 
+            cursor: pointer; 
+            transition: all 0.2s ease;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: var(--transition);
-            z-index: 10;
         }
-
-        .close-btn:hover {
-            background: rgba(255, 255, 255, 0.25);
-            transform: rotate(90deg);
+        .close-btn:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
+        .modal-body { padding: 32px; }
+        .form-group { margin-bottom: 24px; }
+        .form-group label { display: block; margin-bottom: 10px; font-weight: 600; color: var(--text-primary); font-size: 14px; }
+        .form-group input, .form-group textarea { 
+            width: 100%; 
+            padding: 14px 16px; 
+            border: 2px solid var(--border); 
+            border-radius: 12px; 
+            font-size: 14px; 
+            font-family: inherit;
+            transition: all 0.2s ease;
+            background: #f8fafc;
         }
-
-        .manage-body {
-            padding: var(--spacing-xl);
-            overflow-y: auto;
-            flex: 1;
+        .form-group input:focus, .form-group textarea:focus { 
+            outline: none; 
+            border-color: var(--primary); 
+            background: white;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
         }
-
-        .import-section {
-            margin-bottom: 0;
-        }
-
-        .import-section h3 {
-            margin: 0 0 var(--spacing-md) 0;
-            font-size: 22px;
+        .form-group textarea { min-height: 180px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.6; resize: vertical; }
+        .btn { 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 10px; 
+            font-size: 14px; 
+            cursor: pointer; 
+            transition: all 0.2s ease; 
             font-weight: 600;
-            color: var(--color-text-primary);
-            letter-spacing: -0.3px;
-        }
-
-        #importKeys {
-            width: 100%;
-            padding: var(--spacing-md);
-            border: 1.5px solid var(--color-border);
-            border-radius: var(--radius-md);
-            font-size: 15px;
-            resize: vertical;
-            transition: var(--transition);
-            line-height: 1.8;
-            min-height: 150px;
-        }
-
-        #importKeys:focus {
-            outline: none;
-            border-color: var(--color-primary);
-            box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1);
-        }
-
-        .import-btn {
-            margin-top: var(--spacing-md);
-            background: var(--color-primary);
-            color: white;
-            border: none;
-            border-radius: var(--radius-md);
-            padding: 12px 24px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
             display: inline-flex;
             align-items: center;
-            gap: var(--spacing-xs);
+            gap: 8px;
         }
-
-        .import-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
-        }
-
-        .import-btn:active {
-            transform: translateY(0);
-        }
-
-        .import-result {
-            margin-top: var(--spacing-md);
-            padding: var(--spacing-md);
-            border-radius: var(--radius-sm);
-            font-size: 14px;
+        .btn-primary { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3); }
+        .btn-secondary { background: #e2e8f0; color: var(--text-primary); }
+        .btn-secondary:hover { background: #cbd5e1; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-sm { padding: 8px 14px; font-size: 12px; border-radius: 8px; }
+        .btn-group { display: flex; gap: 12px; margin-top: 24px; }
+        .success-msg { 
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05)); 
+            color: #065f46; 
+            padding: 14px 18px; 
+            border-radius: 12px; 
+            margin-bottom: 20px; 
+            border: 1px solid rgba(16, 185, 129, 0.2);
             font-weight: 500;
         }
-
-        .import-result.success {
-            background: rgba(52, 199, 89, 0.1);
-            color: var(--color-success);
-            border: 1px solid rgba(52, 199, 89, 0.2);
-        }
-
-        .import-result.error {
-            background: rgba(255, 59, 48, 0.1);
-            color: var(--color-danger);
-            border: 1px solid rgba(255, 59, 48, 0.2);
-        }
-
-        .keys-list {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .keys-list::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .keys-list::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .keys-list::-webkit-scrollbar-thumb {
-            background: var(--color-border);
-            border-radius: 100px;
-        }
-
-        .keys-list::-webkit-scrollbar-thumb:hover {
-            background: var(--color-text-secondary);
-        }
-
-        /* 分页样式 */
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: var(--spacing-sm);
-            margin-top: var(--spacing-lg);
-            padding: var(--spacing-lg) 0;
-        }
-
-        .pagination-btn {
-            background: var(--color-surface);
-            color: var(--color-text-primary);
-            border: 1.5px solid var(--color-border);
-            border-radius: var(--radius-sm);
-            padding: 10px 16px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-            min-width: 40px;
-        }
-
-        .pagination-btn:hover:not(:disabled) {
-            background: var(--color-primary);
-            color: white;
-            border-color: var(--color-primary);
-            transform: translateY(-2px);
-        }
-
-        .pagination-btn:disabled {
-            opacity: 0.3;
-            cursor: not-allowed;
-        }
-
-        .pagination-btn.active {
-            background: var(--color-primary);
-            color: white;
-            border-color: var(--color-primary);
-        }
-
-        .pagination-info {
-            font-size: 16px;
-            color: var(--color-text-secondary);
+        .error-msg { 
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)); 
+            color: #991b1b; 
+            padding: 14px 18px; 
+            border-radius: 12px; 
+            margin-bottom: 20px; 
+            border: 1px solid rgba(239, 68, 68, 0.2);
             font-weight: 500;
-            padding: 0 var(--spacing-md);
         }
-
-        .key-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: calc(var(--spacing-md) * 1.25);
-            background: var(--color-bg);
-            border-radius: var(--radius-md);
-            margin-bottom: var(--spacing-sm);
-            transition: var(--transition);
-            border: 1px solid transparent;
+        
+        /* Progress bar for usage */
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 8px;
         }
-
-        .key-item:hover {
-            background: rgba(0, 122, 255, 0.04);
-            border-color: rgba(0, 122, 255, 0.1);
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
         }
-
-        .key-info { flex: 1; }
-
-        .key-id {
-            font-weight: 600;
-            color: var(--color-text-primary);
-            font-size: 16px;
-            margin-bottom: 6px;
-        }
-
-        .key-masked {
-            color: var(--color-text-secondary);
-            font-size: 14px;
-        }
-
-        .delete-btn {
-            background: var(--color-danger);
-            color: white;
-            border: none;
-            border-radius: var(--radius-sm);
-            padding: 10px 18px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: var(--transition);
-        }
-
-        .delete-btn:hover {
-            background: #D32F2F;
-            transform: scale(1.05);
-        }
-
-        .delete-btn:active {
-            transform: scale(0.98);
-        }
-
-        /* Responsive Design */
+        .progress-low { background: linear-gradient(90deg, #10b981, #34d399); }
+        .progress-medium { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .progress-high { background: linear-gradient(90deg, #ef4444, #f87171); }
+        
+        /* Responsive */
         @media (max-width: 768px) {
-            body { padding: var(--spacing-sm); }
-            .header { padding: var(--spacing-lg); }
-            .header h1 { font-size: 26px; }
-            .stats-cards {
-                grid-template-columns: 1fr;
-                padding: var(--spacing-lg);
-            }
-            .table-container {
-                padding: 0 var(--spacing-md) var(--spacing-lg);
-                overflow-x: scroll;
-            }
-            table {
-                transform: scale(1);
-                margin-bottom: var(--spacing-lg);
-            }
-            .manage-btn {
-                position: static;
-                margin-top: var(--spacing-md);
-                width: 100%;
-            }
-            .refresh-btn {
-                bottom: var(--spacing-md);
-                right: var(--spacing-md);
-                padding: 14px 24px;
-            }
+            body { padding: 12px; }
+            .header { padding: 20px; }
+            .header-content { flex-direction: column; align-items: flex-start; }
+            .header-left h1 { font-size: 22px; }
+            .header-actions { width: 100%; justify-content: flex-start; }
+            .stats-cards { padding: 20px; gap: 12px; grid-template-columns: repeat(2, 1fr); }
+            .stat-card { padding: 16px; }
+            .stat-card .value { font-size: 22px; }
+            .table-container { padding: 0 16px 24px; }
+            th, td { padding: 12px 10px; font-size: 12px; }
+            .fab-refresh { width: 52px; height: 52px; bottom: 20px; right: 20px; }
         }
-    </style>
-</head>
+    </style>  
+</head>  
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Droid API 余额监控看板</h1>
-            <div class="update-time" id="updateTime">正在加载...</div>
-            <div style="margin-top: 8px; font-size: 14px; opacity: 0.85;">
-                <span id="autoRefreshStatus">自动刷新: 启用中 | 下次刷新: <span id="headerNextRefresh">计算中...</span></span>
-            </div>
-            <button class="manage-btn" onclick="toggleManagePanel()">⚙️ 管理密钥</button>
-        </div>
-
-        <!-- Management Panel -->
-        <div class="manage-panel" id="managePanel" style="display: none;">
-            <div class="manage-content">
-                <button class="close-btn" onclick="toggleManagePanel()">✕</button>
-                <div class="manage-header">
-                    <h2>批量导入密钥</h2>
+            <div class="header-content">
+                <div class="header-left">
+                    <h1>🚀 API 余额监控看板</h1>
+                    <div class="update-time" id="updateTime">正在加载...</div>
                 </div>
-                <div class="manage-body">
-                    <div class="import-section">
-                        <h3>📦 添加 API Key</h3>
-                        <p style="color: var(--color-text-secondary); font-size: 14px; margin-bottom: var(--spacing-md);">
-                            每行粘贴一个 API Key，支持批量导入数百个密钥
-                        </p>
-                        <textarea id="importKeys" placeholder="每行粘贴一个 API Key&#10;fk-xxxxx&#10;fk-yyyyy&#10;fk-zzzzz" rows="10"></textarea>
-                        <button class="import-btn" onclick="importKeys()">
-                            <span id="importSpinner" style="display: none;" class="spinner"></span>
-                            <span id="importText">🚀 导入密钥</span>
-                        </button>
-                        <div id="importResult" class="import-result"></div>
-                    </div>
-
-                    <div class="import-section" style="margin-top: var(--spacing-xl); padding-top: var(--spacing-xl); border-top: 1.5px solid var(--color-border);">
-                        <h3>⏱️ 自动刷新设置</h3>
-                        <p style="color: var(--color-text-secondary); font-size: 14px; margin-bottom: var(--spacing-md);">
-                            设置自动刷新间隔时间（分钟）
-                        </p>
-                        <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
-                            <input type="number" id="refreshInterval" min="1" max="1440" value="30"
-                                   style="width: 120px; padding: 12px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); font-size: 15px; font-family: 'Fira Code', monospace;">
-                            <span style="color: var(--color-text-secondary); font-size: 15px;">分钟</span>
-                        </div>
-                        <div style="display: flex; gap: var(--spacing-sm); margin-bottom: var(--spacing-md);">
-                            <button class="import-btn" onclick="saveRefreshSettings()" style="background: var(--color-success);">
-                                💾 保存设置
-                            </button>
-                            <button class="import-btn" onclick="toggleAutoRefresh()" id="toggleRefreshBtn" style="background: var(--color-secondary);">
-                                ⏸️ 暂停自动刷新
-                            </button>
-                        </div>
-                        <div id="refreshStatus" style="color: var(--color-text-secondary); font-size: 14px; font-weight: 500;">
-                            下次刷新: <span id="nextRefreshDisplay">计算中...</span>
-                        </div>
-                    </div>
+                <div class="header-actions">
+                    <button class="header-btn" onclick="openManageModal()">
+                        <span>➕</span> 导入 Key
+                    </button>
+                    <button class="header-btn success" onclick="exportKeys()" id="exportKeysBtn">
+                        <span>📥</span> 导出
+                    </button>
+                    <button class="header-btn danger" onclick="deleteZeroBalanceKeys()" id="deleteZeroBtn">
+                        <span>🧹</span> 清理无效
+                    </button>
+                    <button class="header-btn danger" onclick="deleteAllKeys()" id="deleteAllBtn">
+                        <span>🗑️</span> 全部删除
+                    </button>
                 </div>
             </div>
         </div>
@@ -1336,582 +516,175 @@ const HTML_CONTENT = `
         <div class="stats-cards" id="statsCards"></div>
 
         <div class="table-container">
-            <div id="tableContent">
-                <div class="loading">正在加载数据...</div>
+            <div class="table-wrapper">
+                <div id="tableContent">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <div>正在加载数据...</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <button class="clear-zero-btn" onclick="clearZeroBalanceKeys()">
-        <span class="spinner" style="display: none;" id="clearSpinner"></span>
-        <span id="clearBtnText">🗑️ 清除零额度</span>
-    </button>
-
-    <button class="refresh-btn" onclick="loadData()">
+    <button class="fab-refresh" onclick="loadData()" title="刷新数据">
+        <span id="refreshIcon">🔄</span>
         <span class="spinner" style="display: none;" id="spinner"></span>
-        <span id="btnText">🔄 刷新数据</span>
     </button>
 
+    <div id="manageModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📦 批量导入 API Key</h2>
+                <button class="close-btn" onclick="closeManageModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="modalMessage"></div>
+
+                <form onsubmit="batchImportKeys(event)">
+                    <div class="form-group">
+                        <label>请输入 API Keys（每行一个）</label>
+                        <textarea id="batchKeysInput" placeholder="支持以下格式：&#10;&#10;fk-xxxxxxxxxxxxx&#10;fk-yyyyyyyyyyyyy&#10;fk-zzzzzzzzzzzzz&#10;&#10;或带自定义ID：&#10;my-key-1:fk-xxxxxxxxxxxxx"></textarea>
+                    </div>
+                    <div class="btn-group">
+                        <button type="submit" class="btn btn-primary">🚀 开始导入</button>
+                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('batchKeysInput').value='';">清空内容</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>  
+  
+  
     <script>
-        // 分页变量
-        let currentPage = 1;
-        let itemsPerPage = 10;
-        let allData = null;
+        // Global variable to store current API data
+        let currentApiData = null;
 
-        // 自动刷新变量
-        let autoRefreshInterval = null;
-        let autoRefreshMinutes = 30; // 默认30分钟
-        let nextRefreshTime = null;
-        let countdownInterval = null;
-
-        // 批量选择变量
-        let selectedKeys = new Set();
-
-        // 本地缓存机制 - 使用localStorage持久化缓存
-        class KeyCache {
-            constructor(maxAge = 24 * 60 * 60 * 1000) { // 默认缓存24小时
-                this.cache = new Map();
-                this.maxAge = maxAge;
-                this.storageKey = 'apikey_cache';
-                this.loadFromStorage();
-            }
-
-            // 从localStorage加载缓存
-            loadFromStorage() {
-                try {
-                    const stored = localStorage.getItem(this.storageKey);
-                    if (stored) {
-                        const data = JSON.parse(stored);
-                        const now = Date.now();
-                        
-                        // 只加载未过期的数据
-                        for (const [id, item] of Object.entries(data)) {
-                            if (now - item.timestamp < this.maxAge) {
-                                this.cache.set(id, item);
-                            }
-                        }
-                        console.log(\`✅ 从本地缓存加载了 \${this.cache.size} 个 API Key\`);
-                    }
-                } catch (error) {
-                    console.error('加载缓存失败:', error);
-                }
-            }
-
-            // 保存到localStorage
-            saveToStorage() {
-                try {
-                    const data = {};
-                    for (const [id, item] of this.cache.entries()) {
-                        data[id] = item;
-                    }
-                    localStorage.setItem(this.storageKey, JSON.stringify(data));
-                } catch (error) {
-                    console.error('保存缓存失败:', error);
-                }
-            }
-
-            set(id, key) {
-                this.cache.set(id, {
-                    key: key,
-                    timestamp: Date.now()
-                });
-                this.saveToStorage();
-            }
-
-            get(id) {
-                const item = this.cache.get(id);
-                if (!item) return null;
-
-                // 检查是否过期
-                if (Date.now() - item.timestamp > this.maxAge) {
-                    this.cache.delete(id);
-                    this.saveToStorage();
-                    return null;
-                }
-
-                return item.key;
-            }
-
-            has(id) {
-                return this.get(id) !== null;
-            }
-
-            clear() {
-                this.cache.clear();
-                localStorage.removeItem(this.storageKey);
-            }
-
-            size() {
-                return this.cache.size;
-            }
-
-            // 批量添加
-            batchSet(entries) {
-                for (const [id, key] of entries) {
-                    this.cache.set(id, {
-                        key: key,
-                        timestamp: Date.now()
-                    });
-                }
-                this.saveToStorage();
-            }
-        }
-
-        const keyCache = new KeyCache();
-
-        // 并发控制类
-        class ConcurrentTaskRunner {
-            constructor(concurrency = 5) {
-                this.concurrency = concurrency;
-                this.running = 0;
-                this.queue = [];
-            }
-
-            async run(tasks) {
-                const results = [];
-                let index = 0;
-
-                const executeNext = async () => {
-                    if (index >= tasks.length) return;
-                    
-                    const currentIndex = index++;
-                    const task = tasks[currentIndex];
-                    
-                    this.running++;
-                    try {
-                        results[currentIndex] = await task();
-                    } catch (error) {
-                        results[currentIndex] = { error: error.message };
-                    } finally {
-                        this.running--;
-                        await executeNext();
-                    }
-                };
-
-                const workers = Array(Math.min(this.concurrency, tasks.length))
-                    .fill(null)
-                    .map(() => executeNext());
-
-                await Promise.all(workers);
-                return results;
-            }
-        }
-
-        const taskRunner = new ConcurrentTaskRunner(8); // 8个并发请求
-
-        // Toast 提示函数
-        function showToast(message, isError = false) {
-            const existingToast = document.querySelector('.toast');
-            if (existingToast) {
-                existingToast.remove();
-            }
-
-            const toast = document.createElement('div');
-            toast.className = 'toast' + (isError ? ' error' : '');
-            toast.innerHTML = \`
-                <span class="toast-icon">\${isError ? '❌' : '✅'}</span>
-                <span class="toast-message">\${message}</span>
-            \`;
-            document.body.appendChild(toast);
-
-            setTimeout(() => {
-                toast.remove();
-            }, 3000);
-        }
-
-        // 复制到剪贴板函数
-        async function copyToClipboard(text) {
-            try {
-                await navigator.clipboard.writeText(text);
-                return true;
-            } catch (err) {
-                console.error('复制失败:', err);
-                return false;
-            }
-        }
-
-        // 复制单个 Key - 优化版本(使用缓存)
-        async function copyKey(id, button) {
-            try {
-                let key = keyCache.get(id);
+        const formatNumber = (num) => num ? new Intl.NumberFormat('en-US').format(num) : '0';
+        const formatPercentage = (ratio) => ratio ? (ratio * 100).toFixed(2) + '%' : '0.00%';  
+  
+  
+        function loadData(retryCount = 0) {  
+            const spinner = document.getElementById('spinner');  
+            const refreshIcon = document.getElementById('refreshIcon');  
                 
-                if (!key) {
-                    const response = await fetch(\`/api/keys/\${id}/full\`);
-                    if (!response.ok) {
-                        throw new Error('获取完整 Key 失败');
+            spinner.style.display = 'inline-block';  
+            refreshIcon.style.display = 'none';  
+  
+            fetch('/api/data?t=' + new Date().getTime())  
+                .then(response => {  
+                    if (response.status === 503 && retryCount < 5) {
+                        console.log(\`Server initializing, retrying in 2 seconds... (attempt \${retryCount + 1}/5)\`);
+                        document.getElementById('tableContent').innerHTML = \`<div class="loading"><div class="loading-spinner"></div><div>服务器正在初始化数据，请稍候... (尝试 \${retryCount + 1}/5)</div></div>\`;
+                        setTimeout(() => loadData(retryCount + 1), 2000);
+                        return null;
                     }
-                    const data = await response.json();
-                    key = data.key;
-                    keyCache.set(id, key);
-                }
-                
-                const success = await copyToClipboard(key);
-                
-                if (success) {
-                    button.classList.add('copied');
-                    button.innerHTML = '<span style="font-size: 18px;">✓</span>';
-                    button.title = '已复制';
-                    showToast('API Key 已复制到剪贴板');
-                    
-                    setTimeout(() => {
-                        button.classList.remove('copied');
-                        button.innerHTML = '<img src="https://images.icon-icons.com/4026/PNG/512/copy_icon_256034.png" class="btn-icon" alt="copy">';
-                        button.title = '复制 API Key';
-                    }, 2000);
-                } else {
-                    showToast('复制失败，请重试', true);
-                }
-            } catch (error) {
-                showToast('复制失败: ' + error.message, true);
-            }
-        }
-
-        // 批量复制选中的 Keys - 优化版本(并发控制+缓存)
-        async function batchCopyKeys() {
-            if (selectedKeys.size === 0) {
-                showToast('请先选择要复制的 Key', true);
-                return;
-            }
-
-            try {
-                showToast(\`正在复制 \${selectedKeys.size} 个 Key...\`);
-                
-                const ids = Array.from(selectedKeys);
-                
-                // 创建任务数组
-                const tasks = ids.map(id => async () => {
-                    // 先检查缓存
-                    const cachedKey = keyCache.get(id);
-                    if (cachedKey) {
-                        return cachedKey;
-                    }
-
-                    // 缓存未命中，发起网络请求
-                    const response = await fetch(\`/api/keys/\${id}/full\`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        // 存入缓存
-                        keyCache.set(id, data.key);
-                        return data.key;
-                    }
-                    return null;
-                });
-
-                // 使用并发控制执行任务
-                const results = await taskRunner.run(tasks);
-                const keys = results.filter(k => k !== null);
-
-                if (keys.length > 0) {
-                    const success = await copyToClipboard(keys.join('\\n'));
-                    if (success) {
-                        showToast(\`✅ 已复制 \${keys.length} 个 API Key\`);
-                    } else {
-                        showToast('复制失败，请重试', true);
-                    }
-                } else {
-                    showToast('没有可复制的 Key', true);
-                }
-            } catch (error) {
-                showToast('批量复制失败: ' + error.message, true);
-            }
-        }
-
-        // 批量删除选中的 Keys - 优化版本(缓存清理)
-        async function batchDeleteKeys() {
-            if (selectedKeys.size === 0) {
-                showToast('请先选择要删除的 Key', true);
-                return;
-            }
-
-            if (!confirm(\`确定要删除 \${selectedKeys.size} 个 API Key 吗？此操作不可恢复！\`)) {
-                return;
-            }
-
-            try {
-                showToast(\`正在删除 \${selectedKeys.size} 个 Key...\`);
-                
-                const response = await fetch('/api/keys/batch-delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ids: Array.from(selectedKeys) })
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    
-                    // 从缓存中删除这些keys
-                    selectedKeys.forEach(id => {
-                        if (keyCache.cache.has(id)) {
-                            keyCache.cache.delete(id);
-                        }
-                    });
-                    
-                    showToast(\`✅ 成功删除 \${result.success} 个 Key\${result.failed > 0 ? \`, \${result.failed} 个失败\` : ''}\`);
-                    selectedKeys.clear();
-                    loadData();
-                } else {
-                    const data = await response.json();
-                    showToast('批量删除失败: ' + data.error, true);
-                }
-            } catch (error) {
-                showToast('批量删除失败: ' + error.message, true);
-            }
-        }
-
-        // 切换选中状态
-        function toggleSelection(id) {
-            if (selectedKeys.has(id)) {
-                selectedKeys.delete(id);
-            } else {
-                selectedKeys.add(id);
-            }
-            updateBatchToolbar();
-        }
-
-        // 全选/取消全选
-        function toggleSelectAll() {
-            if (!allData) return;
-
-            const allIds = allData.data.map(item => item.id);
-            
-            if (selectedKeys.size === allIds.length) {
-                selectedKeys.clear();
-            } else {
-                allIds.forEach(id => selectedKeys.add(id));
-            }
-            
-            renderTable();
-        }
-
-        // 取消所有选择
-        function clearSelection() {
-            selectedKeys.clear();
-            renderTable();
-        }
-
-        // 更新批量操作工具栏
-        function updateBatchToolbar() {
-            const existingToolbar = document.querySelector('.batch-toolbar');
-            
-            if (selectedKeys.size > 0) {
-                if (!existingToolbar) {
-                    const toolbar = document.createElement('div');
-                    toolbar.className = 'batch-toolbar';
-                    toolbar.innerHTML = \`
-                        <div class="batch-toolbar-left">
-                            <span class="batch-count">已选中 <strong>\${selectedKeys.size}</strong> 个 Key</span>
-                        </div>
-                        <div class="batch-toolbar-right">
-                            <button class="batch-btn" onclick="batchCopyKeys()">📋 批量复制</button>
-                            <button class="batch-btn danger" onclick="batchDeleteKeys()">🗑️ 批量删除</button>
-                            <button class="batch-btn" onclick="clearSelection()">✕ 取消选择</button>
-                        </div>
-                    \`;
-                    
-                    const tableContainer = document.querySelector('.table-container');
-                    tableContainer.insertBefore(toolbar, tableContainer.firstChild);
-                } else {
-                    existingToolbar.querySelector('.batch-count').innerHTML = \`已选中 <strong>\${selectedKeys.size}</strong> 个 Key\`;
-                }
-            } else {
-                if (existingToolbar) {
-                    existingToolbar.remove();
-                }
-            }
-        }
-
-        function formatNumber(num) {
-            if (num === undefined || num === null) {
-                return '0';
-            }
-            return new Intl.NumberFormat('en-US').format(num);
-        }
-
-        function formatPercentage(ratio) {
-            if (ratio === undefined || ratio === null) {
-                return '0.00%';
-            }
-            return (ratio * 100).toFixed(2) + '%';
-        }
-
-        function loadData() {
-            const spinner = document.getElementById('spinner');
-            const btnText = document.getElementById('btnText');
-
-            spinner.style.display = 'inline-block';
-            btnText.textContent = '加载中...';
-
-            fetch('/api/data?t=' + new Date().getTime())
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('无法加载数据: ' + response.statusText);
-                    }
-                    return response.json();
-                })
+                    if (!response.ok) {  
+                        throw new Error('无法加载数据: ' + response.statusText);  
+                    }  
+                    return response.json();  
+                })  
                 .then(data => {
-                    if (data.error) {
-                        throw new Error(data.error);
-                    }
-                    displayData(data);
-                    // 预加载所有keys到缓存
-                    preloadKeysToCache(data.data);
-                    // 重置自动刷新计时器
-                    resetAutoRefresh();
-                })
-                .catch(error => {
-                    document.getElementById('tableContent').innerHTML = \`<div class="error">❌ 加载失败: \${error.message}</div>\`;
-                    document.getElementById('updateTime').textContent = "加载失败";
-                })
-                .finally(() => {
-                    spinner.style.display = 'none';
-                    btnText.textContent = '🔄 刷新数据';
-                });
-        }
-
-        // 预加载所有keys到缓存
-        async function preloadKeysToCache(dataItems) {
-            const uncachedIds = dataItems
-                .filter(item => !item.error && !keyCache.has(item.id))
-                .map(item => item.id);
-
-            if (uncachedIds.length === 0) {
-                console.log('✅ 所有 Key 已在缓存中');
-                return;
-            }
-
-            console.log(\`🔄 预加载 \${uncachedIds.length} 个新 Key 到缓存...\`);
-
-            // 创建任务数组
-            const tasks = uncachedIds.map(id => async () => {
-                try {
-                    const response = await fetch(\`/api/keys/\${id}/full\`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        return [id, data.key];
-                    }
-                } catch (error) {
-                    console.error(\`预加载 key \${id} 失败:\`, error);
-                }
-                return null;
-            });
-
-            // 使用并发控制执行
-            const results = await taskRunner.run(tasks);
-            const validEntries = results.filter(r => r !== null);
-
-            // 批量写入缓存
-            if (validEntries.length > 0) {
-                keyCache.batchSet(validEntries);
-                console.log(\`✅ 成功预加载 \${validEntries.length} 个 Key 到本地缓存\`);
-            }
-        }
-
+                    if (data === null) return;
+                    if (data.error) {  
+                        throw new Error(data.error);  
+                    }  
+                    displayData(data);  
+                })  
+                .catch(error => {  
+                    document.getElementById('tableContent').innerHTML = \`<div class="error">❌ 加载失败: \${error.message}</div>\`;  
+                    document.getElementById('updateTime').textContent = "加载失败";  
+                })  
+                .finally(() => {  
+                    spinner.style.display = 'none';  
+                    refreshIcon.style.display = 'inline';  
+                });  
+        }  
+  
+  
         function displayData(data) {
-            allData = data; // 保存数据
-            document.getElementById('updateTime').textContent = \`最后更新: \${data.update_time} | 共 \${data.total_count} 个API Key\`;
+            currentApiData = data;
+
+            document.getElementById('updateTime').textContent = \`⏱️ 最后更新: \${data.update_time} · 共 \${data.total_count} 个 API Key\`;
 
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
-            const totalRemaining = totalAllowance - totalUsed;
+            const totalRemaining = data.totals.totalRemaining;
             const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
+            const progressClass = overallRatio < 0.5 ? 'progress-low' : overallRatio < 0.8 ? 'progress-medium' : 'progress-high';
 
-            const statsCards = document.getElementById('statsCards');
-            const progressWidth = Math.min(overallRatio * 100, 100); // 限制最大100%
-            statsCards.innerHTML = \`
-                <div class="stat-card"><div class="label">总计额度 (Total Allowance)</div><div class="value">\${formatNumber(totalAllowance)}</div></div>
-                <div class="stat-card"><div class="label">已使用 (Total Used)</div><div class="value">\${formatNumber(totalUsed)}</div></div>
-                <div class="stat-card"><div class="label">剩余额度 (Remaining)</div><div class="value">\${formatNumber(totalRemaining)}</div></div>
+            const statsCards = document.getElementById('statsCards');  
+            statsCards.innerHTML = \`  
                 <div class="stat-card">
-                    <div class="progress-background" style="width: \${progressWidth}%"></div>
-                    <div class="label">使用百分比 (Usage %)</div>
+                    <div class="icon">💰</div>
+                    <div class="label">总计额度</div>
+                    <div class="value">\${formatNumber(totalAllowance)}</div>
+                </div>  
+                <div class="stat-card">
+                    <div class="icon">📊</div>
+                    <div class="label">已使用</div>
+                    <div class="value">\${formatNumber(totalUsed)}</div>
+                </div>  
+                <div class="stat-card">
+                    <div class="icon">✨</div>
+                    <div class="label">剩余额度</div>
+                    <div class="value">\${formatNumber(totalRemaining)}</div>
+                </div>  
+                <div class="stat-card">
+                    <div class="icon">📈</div>
+                    <div class="label">使用率</div>
                     <div class="value">\${formatPercentage(overallRatio)}</div>
-                </div>
-            \`;
-
-            renderTable();
-        }
-
-        function renderTable() {
-            if (!allData) return;
-
-            const data = allData;
-            const totalPages = Math.ceil(data.data.length / itemsPerPage);
-            const startIndex = (currentPage - 1) * itemsPerPage;
-            const endIndex = startIndex + itemsPerPage;
-            const pageData = data.data.slice(startIndex, endIndex);
-
-            const totalAllowance = data.totals.total_totalAllowance;
-            const totalUsed = data.totals.total_orgTotalTokensUsed;
-            const totalRemaining = totalAllowance - totalUsed;
-            const overallRatio = totalAllowance > 0 ? totalUsed / totalAllowance : 0;
-
-            const allIds = data.data.map(item => item.id);
-            const allSelected = allIds.length > 0 && allIds.every(id => selectedKeys.has(id));
-
+                    <div class="progress-bar"><div class="progress-fill \${progressClass}" style="width: \${Math.min(overallRatio * 100, 100)}%"></div></div>
+                </div>  
+            \`;  
+  
+  
             let tableHTML = \`
                 <table>
                     <thead>
                         <tr>
-                            <th class="checkbox-cell"><input type="checkbox" \${allSelected ? 'checked' : ''} onchange="toggleSelectAll()" title="全选/取消全选"></th>
-                            <th>ID</th>
                             <th>API Key</th>
-                            <th>开始时间</th>
-                            <th>结束时间</th>
-                            <th class="number">总计额度</th>
+                            <th>开始日期</th>
+                            <th>结束日期</th>
+                            <th class="number">总额度</th>
                             <th class="number">已使用</th>
-                            <th class="number">剩余额度</th>
-                            <th class="number">使用百分比</th>
+                            <th class="number">剩余</th>
+                            <th class="number">使用率</th>
                             <th style="text-align: center;">操作</th>
                         </tr>
                     </thead>
                     <tbody>\`;
 
-            // 总计行放在第一行
-            tableHTML += \`
-                <tr class="total-row">
-                    <td class="checkbox-cell"></td>
-                    <td colspan="4">总计 (SUM)</td>
-                    <td class="number">\${formatNumber(totalAllowance)}</td>
-                    <td class="number">\${formatNumber(totalUsed)}</td>
-                    <td class="number">\${formatNumber(totalRemaining)}</td>
-                    <td class="number">\${formatPercentage(overallRatio)}</td>
-                    <td></td>
-                </tr>\`;
-
-            // 数据行 - 只显示当前页
-            pageData.forEach(item => {
-                const isChecked = selectedKeys.has(item.id);
+            data.data.forEach(item => {
                 if (item.error) {
                     tableHTML += \`
                         <tr>
-                            <td class="checkbox-cell"><input type="checkbox" \${isChecked ? 'checked' : ''} onchange="toggleSelection('\${item.id}'); renderTable();"></td>
-                            <td class="id-cell">\${item.id}</td>
-                            <td class="key-cell" title="\${item.key}">\${item.key}</td>
-                            <td colspan="6" class="error-row">加载失败: \${item.error}</td>
-                            <td style="text-align: center;"><button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')">删除</button></td>
+                            <td><span class="key-cell" title="\${item.key}">\${item.key}</span></td>
+                            <td colspan="5" class="error-row">⚠️ \${item.error}</td>
+                            <td style="text-align: center;">
+                                <button class="btn btn-primary btn-sm" onclick="refreshSingleKey('\${item.id}')">🔄</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteKeyFromTable('\${item.id}')" style="margin-left: 6px;">🗑️</button>
+                            </td>
                         </tr>\`;
                 } else {
-                    const remaining = item.totalAllowance - item.orgTotalTokensUsed;
+                    const remaining = Math.max(0, item.totalAllowance - item.orgTotalTokensUsed);
+                    const ratio = item.usedRatio || 0;
+                    const progressClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
                     tableHTML += \`
-                        <tr>
-                            <td class="checkbox-cell"><input type="checkbox" \${isChecked ? 'checked' : ''} onchange="toggleSelection('\${item.id}'); renderTable();"></td>
-                            <td class="id-cell">\${item.id}</td>
-                            <td class="key-cell" title="\${item.key}">\${item.key}</td>
-                            <td class="date-cell">\${item.startDate}</td>
-                            <td class="date-cell">\${item.endDate}</td>
+                        <tr id="key-row-\${item.id}">
+                            <td><span class="key-cell" title="\${item.key}">\${item.key}</span></td>
+                            <td>\${item.startDate}</td>
+                            <td>\${item.endDate}</td>
                             <td class="number">\${formatNumber(item.totalAllowance)}</td>
                             <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
-                            <td class="number">\${formatNumber(remaining)}</td>
-                            <td class="number">\${formatPercentage(item.usedRatio)}</td>
-                            <td style="text-align: center;">
-                                <div class="action-buttons">
-                                    <button class="table-copy-btn" onclick="copyKey('\${item.id}', this)" title="复制 API Key">
-                                        <img src="https://images.icon-icons.com/4026/PNG/512/copy_icon_256034.png" class="btn-icon" alt="copy">
-                                    </button>
-                                    <button class="table-delete-btn" onclick="deleteKeyFromTable('\${item.id}')" title="删除">
-                                        <img src="https://images.icon-icons.com/4026/PNG/96/remove_delete_trash_icon_255976.png" class="btn-icon" alt="delete">
-                                    </button>
-                                </div>
+                            <td class="number" style="color: \${remaining > 0 ? '#10b981' : '#ef4444'}; font-weight: 700;">\${formatNumber(remaining)}</td>
+                            <td class="number">
+                                <div>\${formatPercentage(ratio)}</div>
+                                <div class="progress-bar" style="width: 80px;"><div class="progress-fill \${progressClass}" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>
+                            </td>
+                            <td style="text-align: center; white-space: nowrap;">
+                                <button class="btn btn-primary btn-sm" onclick="refreshSingleKey('\${item.id}')" title="刷新">🔄</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteKeyFromTable('\${item.id}')" style="margin-left: 6px;" title="删除">🗑️</button>
                             </td>
                         </tr>\`;
                 }
@@ -1919,661 +692,725 @@ const HTML_CONTENT = `
 
             tableHTML += \`
                     </tbody>
-                </table>\`;
+                </table>\`; 
+  
+  
+            document.getElementById('tableContent').innerHTML = tableHTML;  
+        }  
+  
+  
+        document.addEventListener('DOMContentLoaded', loadData);
 
-            // 添加分页控件
-            if (totalPages > 1) {
-                tableHTML += \`<div class="pagination">\`;
-
-                // 上一页按钮
-                tableHTML += \`<button class="pagination-btn" onclick="changePage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''}>❮ 上一页</button>\`;
-
-                // 页码信息
-                tableHTML += \`<span class="pagination-info">第 \${currentPage} / \${totalPages} 页 (共 \${data.data.length} 条)</span>\`;
-
-                // 下一页按钮
-                tableHTML += \`<button class="pagination-btn" onclick="changePage(\${currentPage + 1})" \${currentPage === totalPages ? 'disabled' : ''}>下一页 ❯</button>\`;
-
-                tableHTML += \`</div>\`;
-            }
-
-            document.getElementById('tableContent').innerHTML = tableHTML;
-            updateBatchToolbar();
+        // Modal and Key Management Functions
+        function openManageModal() {
+            document.getElementById('manageModal').classList.add('show');
+            clearMessage();
         }
 
-        function changePage(page) {
-            if (!allData) return;
-            const totalPages = Math.ceil(allData.data.length / itemsPerPage);
-            if (page < 1 || page > totalPages) return;
-
-            currentPage = page;
-            renderTable();
-
-            // 滚动到表格顶部
-            document.querySelector('.table-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        function closeManageModal() {
+            document.getElementById('manageModal').classList.remove('show');
+            clearMessage();
         }
 
-        // Toggle manage panel
-        function toggleManagePanel() {
-            const panel = document.getElementById('managePanel');
-            if (panel.style.display === 'none') {
-                panel.style.display = 'flex';
-            } else {
-                panel.style.display = 'none';
-            }
+        function showMessage(message, isError = false) {
+            const msgDiv = document.getElementById('modalMessage');
+            msgDiv.innerHTML = \`<div class="\${isError ? 'error-msg' : 'success-msg'}">\${message}</div>\`;
+            setTimeout(() => clearMessage(), 5000);
         }
 
-        // Import keys
-        async function importKeys() {
-            const textarea = document.getElementById('importKeys');
-            const spinner = document.getElementById('importSpinner');
-            const text = document.getElementById('importText');
-            const result = document.getElementById('importResult');
+        function clearMessage() {
+            document.getElementById('modalMessage').innerHTML = '';
+        }
 
-            const keysText = textarea.value.trim();
-            if (!keysText) {
-                result.className = 'import-result error';
-                result.textContent = '请输入至少一个 API Key';
-                return;
-            }
+        async function exportKeys() {
+            const password = prompt('🔐 请输入导出密码：');
+            if (!password) return;
 
-            const keys = keysText.split('\\n').map(k => k.trim()).filter(k => k.length > 0);
-
-            spinner.style.display = 'inline-block';
-            text.textContent = '导入中...';
-            result.textContent = '';
-            result.className = 'import-result';
+            const exportBtn = document.getElementById('exportKeysBtn');
+            exportBtn.disabled = true;
+            const originalHTML = exportBtn.innerHTML;
+            exportBtn.innerHTML = '<span class="spinner"></span> 导出中...';
 
             try {
-                const response = await fetch('/api/keys/import', {
+                const response = await fetch('/api/keys/export', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keys })
+                    body: JSON.stringify({ password })
                 });
 
-                const data = await response.json();
+                const result = await response.json();
 
                 if (response.ok) {
-                    result.className = 'import-result success';
-                    let message = \`✅ 成功添加 \${data.success} 个\`;
-                    if (data.duplicates > 0) {
-                        message += \`, 忽略 \${data.duplicates} 个重复\`;
-                    }
-                    if (data.failed > 0) {
-                        message += \`, \${data.failed} 个失败\`;
-                    }
-                    result.textContent = message;
-                    showToast(message);
-                    textarea.value = '';
-                    // 关闭弹窗并刷新主页面数据
-                    setTimeout(() => {
-                        toggleManagePanel();
-                        loadData();
-                    }, 1500);
+                    const keysText = result.keys.map(k => k.key).join('\\n');
+                    const blob = new Blob([keysText], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = Object.assign(document.createElement('a'), {
+                        href: url,
+                        download: \`api_keys_export_\${new Date().toISOString().split('T')[0]}.txt\`
+                    });
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    alert(\`成功导出 \${result.keys.length} 个Key\`);
                 } else {
-                    result.className = 'import-result error';
-                    result.textContent = '导入失败: ' + data.error;
+                    alert('❌ 导出失败: ' + (result.error || '未知错误'));
                 }
             } catch (error) {
-                result.className = 'import-result error';
-                result.textContent = '导入失败: ' + error.message;
+                alert('❌ 网络错误: ' + error.message);
             } finally {
-                spinner.style.display = 'none';
-                text.textContent = '🚀 导入密钥';
+                exportBtn.disabled = false;
+                exportBtn.innerHTML = originalHTML;
             }
         }
 
-        // Delete key from table - 从表格中删除密钥
-        async function deleteKeyFromTable(id) {
-            if (!confirm('确定要删除这个密钥吗？删除后需要刷新页面查看更新。')) {
-                return;
-            }
+        async function deleteAllKeys() {
+            if (!currentApiData) return alert('⚠️ 请先加载数据');
+
+            const totalKeys = currentApiData.total_count;
+            if (totalKeys === 0) return alert('📭 没有可删除的 Key');
+
+            const confirmMsg = \`🚨 危险操作！\\n\\n确定要删除所有 \${totalKeys} 个 Key 吗？\\n此操作不可恢复！\`;
+            if (!confirm(confirmMsg)) return;
+
+            const secondConfirm = prompt('⚠️ 请输入 "确认删除" 以继续：');
+            if (secondConfirm !== '确认删除') return alert('✅ 操作已取消');
+
+            const deleteBtn = document.getElementById('deleteAllBtn');
+            deleteBtn.disabled = true;
+            const originalHTML = deleteBtn.innerHTML;
+            deleteBtn.innerHTML = '<span class="spinner"></span> 删除中...';
 
             try {
-                const response = await fetch(\`/api/keys/\${id}\`, {
-                    method: 'DELETE'
+                const allIds = currentApiData.data.map(item => item.id);
+                const response = await fetch('/api/keys/batch-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: allIds })
                 });
 
+                const result = await response.json();
+
                 if (response.ok) {
-                    // 删除成功后重新加载数据
+                    alert(\`✅ 成功删除 \${result.deleted || totalKeys} 个 Key\`);
                     loadData();
                 } else {
-                    const data = await response.json();
-                    alert('删除失败: ' + data.error);
+                    alert('❌ 删除失败: ' + (result.error || '未知错误'));
                 }
             } catch (error) {
-                alert('删除失败: ' + error.message);
+                alert('❌ 网络错误: ' + error.message);
+            } finally {
+                deleteBtn.disabled = false;
+                deleteBtn.innerHTML = originalHTML;
             }
         }
 
-        // Clear zero balance keys - 清除零额度或负额度的密钥
-        async function clearZeroBalanceKeys() {
-            if (!allData) {
-                alert('请先加载数据');
-                return;
-            }
+        async function deleteZeroBalanceKeys() {
+            if (!currentApiData) return alert('⚠️ 请先加载数据');
 
-            // 找出剩余额度小于等于0的密钥
-            const zeroBalanceKeys = allData.data.filter(item => {
+            const zeroBalanceKeys = currentApiData.data.filter(item => {
                 if (item.error) return false;
-                const remaining = item.totalAllowance - item.orgTotalTokensUsed;
-                return remaining <= 0;
+                const remaining = Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
+                return remaining === 0;
             });
 
-            if (zeroBalanceKeys.length === 0) {
-                alert('没有需要清除的零额度密钥');
-                return;
+            if (zeroBalanceKeys.length === 0) return alert('🎉 太棒了！没有找到余额为 0 的 Key');
+
+            const confirmMsg = \`🧹 清理确认\\n\\n发现 \${zeroBalanceKeys.length} 个余额为 0 的 Key\\n确定要删除吗？\`;
+
+            if (!confirm(confirmMsg)) return;
+
+            const deleteBtn = document.getElementById('deleteZeroBtn');
+            deleteBtn.disabled = true;
+            const originalHTML = deleteBtn.innerHTML;
+            deleteBtn.innerHTML = '<span class="spinner"></span> 清理中...';
+
+            try {
+                const response = await fetch('/api/keys/batch-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: zeroBalanceKeys.map(k => k.id) })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(\`✅ 成功清理 \${result.deleted || zeroBalanceKeys.length} 个无效 Key\`);
+                    loadData();
+                } else {
+                    alert('❌ 清理失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                alert('❌ 网络错误: ' + error.message);
+            } finally {
+                deleteBtn.disabled = false;
+                deleteBtn.innerHTML = originalHTML;
             }
+        }
 
-            if (!confirm(\`确定要删除 \${zeroBalanceKeys.length} 个零额度或负额度的密钥吗？此操作不可恢复！\`)) {
-                return;
-            }
+        async function batchImportKeys(event) {
+            event.preventDefault();
+            const input = document.getElementById('batchKeysInput').value.trim();
 
-            const clearSpinner = document.getElementById('clearSpinner');
-            const clearBtnText = document.getElementById('clearBtnText');
+            if (!input) return showMessage('请输入要导入的 Keys', true);
 
-            clearSpinner.style.display = 'inline-block';
-            clearBtnText.textContent = '清除中...';
+            const lines = input.split('\\n').map(line => line.trim()).filter(line => line.length > 0);
+            const keysToImport = [];
+            const timestamp = Date.now();
+            let autoIdCounter = 1;
 
-            let successCount = 0;
-            let failCount = 0;
-
-            // 批量删除
-            for (const item of zeroBalanceKeys) {
-                try {
-                    const response = await fetch(\`/api/keys/\${item.id}\`, {
-                        method: 'DELETE'
+            for (const line of lines) {
+                if (line.includes(':')) {
+                    const [id, key] = line.split(':').map(s => s.trim());
+                    if (id && key) keysToImport.push({ id, key });
+                } else {
+                    const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+                    keysToImport.push({
+                        id: \`key-\${timestamp}-\${autoIdCounter++}-\${randomSuffix}\`,
+                        key: line
                     });
-
-                    if (response.ok) {
-                        successCount++;
-                    } else {
-                        failCount++;
-                    }
-                } catch (error) {
-                    failCount++;
-                    console.error(\`Failed to delete key \${item.id}:\`, error);
                 }
             }
 
-            clearSpinner.style.display = 'none';
-            clearBtnText.textContent = '🗑️ 清除零额度';
+            if (keysToImport.length === 0) return showMessage('没有有效的 Key 可以导入', true);
 
-            alert(\`清除完成！\\n成功删除: \${successCount} 个\\n失败: \${failCount} 个\`);
+            try {
+                const response = await fetch('/api/keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(keysToImport)
+                });
 
-            // 重新加载数据
-            loadData();
-        }
+                const result = await response.json();
 
-        // 自动刷新功能
-        function initAutoRefresh() {
-            // 从 localStorage 加载设置
-            const savedInterval = localStorage.getItem('autoRefreshInterval');
-            const isEnabled = localStorage.getItem('autoRefreshEnabled');
-
-            if (savedInterval) {
-                autoRefreshMinutes = parseInt(savedInterval);
-                document.getElementById('refreshInterval').value = autoRefreshMinutes;
-            }
-
-            // 默认启用自动刷新
-            if (isEnabled === null || isEnabled === 'true') {
-                startAutoRefresh();
-            } else {
-                updateToggleButton(false);
+                if (response.ok) {
+                    const msg = \`🎉 成功导入 \${result.added} 个 Key\${result.skipped > 0 ? \`，跳过 \${result.skipped} 个重复\` : ''}\`;
+                    showMessage(msg);
+                    document.getElementById('batchKeysInput').value = '';
+                    closeManageModal();
+                    loadData();
+                } else {
+                    showMessage(result.error || '批量导入失败', true);
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, true);
             }
         }
 
-        function startAutoRefresh() {
-            // 清除现有的计时器
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-            }
-            if (countdownInterval) {
-                clearInterval(countdownInterval);
-            }
+        async function deleteKeyFromTable(id) {
+            if (!confirm(\`🗑️ 确定要删除这个 Key 吗？\`)) return;
 
-            // 设置下次刷新时间
-            nextRefreshTime = Date.now() + (autoRefreshMinutes * 60 * 1000);
+            try {
+                const response = await fetch(\`/api/keys/\${id}\`, { method: 'DELETE' });
+                const result = await response.json();
 
-            // 启动自动刷新计时器
-            autoRefreshInterval = setInterval(() => {
-                console.log('自动刷新数据...');
-                loadData();
-            }, autoRefreshMinutes * 60 * 1000);
-
-            // 启动倒计时显示
-            updateCountdown();
-            countdownInterval = setInterval(updateCountdown, 1000);
-
-            // 更新状态显示
-            document.getElementById('autoRefreshStatus').innerHTML = '自动刷新: <span style="color: #34C759;">启用中</span> | 下次刷新: <span id="headerNextRefresh">计算中...</span>';
-            updateToggleButton(true);
-            localStorage.setItem('autoRefreshEnabled', 'true');
-        }
-
-        function stopAutoRefresh() {
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-                autoRefreshInterval = null;
-            }
-            if (countdownInterval) {
-                clearInterval(countdownInterval);
-                countdownInterval = null;
-            }
-            nextRefreshTime = null;
-            document.getElementById('nextRefreshDisplay').textContent = '已暂停';
-            document.getElementById('headerNextRefresh').textContent = '已暂停';
-            document.getElementById('autoRefreshStatus').innerHTML = '自动刷新: <span style="color: #FF9500;">已暂停</span>';
-            updateToggleButton(false);
-            localStorage.setItem('autoRefreshEnabled', 'false');
-        }
-
-        function resetAutoRefresh() {
-            if (autoRefreshInterval) {
-                // 如果自动刷新已启用，重置计时器
-                startAutoRefresh();
+                if (response.ok) {
+                    loadData();
+                } else {
+                    alert('❌ 删除失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                alert('❌ 网络错误: ' + error.message);
             }
         }
 
-        function updateCountdown() {
-            if (!nextRefreshTime) return;
+        async function refreshSingleKey(id) {
+            const row = document.getElementById(\`key-row-\${id}\`);
+            if (!row) return alert('找不到对应的行');
 
-            const now = Date.now();
-            const remaining = nextRefreshTime - now;
+            const cells = row.querySelectorAll('td');
+            const originalContent = [];
+            cells.forEach((cell, index) => {
+                originalContent[index] = cell.innerHTML;
+                if (index > 0 && index < cells.length - 1) {
+                    cell.innerHTML = '<span style="color: #6c757d;">⏳ 刷新中...</span>';
+                }
+            });
 
-            if (remaining <= 0) {
-                document.getElementById('nextRefreshDisplay').textContent = '正在刷新...';
-                document.getElementById('headerNextRefresh').textContent = '正在刷新...';
-                return;
-            }
+            try {
+                const response = await fetch(\`/api/keys/\${id}/refresh\`, {
+                    method: 'POST'
+                });
 
-            const minutes = Math.floor(remaining / 60000);
-            const seconds = Math.floor((remaining % 60000) / 1000);
-            const timeText = minutes + ' 分 ' + seconds + ' 秒后';
+                const result = await response.json();
 
-            document.getElementById('nextRefreshDisplay').textContent = timeText;
-            document.getElementById('headerNextRefresh').textContent = timeText;
-        }
-
-        function updateToggleButton(isRunning) {
-            const btn = document.getElementById('toggleRefreshBtn');
-            if (isRunning) {
-                btn.innerHTML = '⏸️ 暂停自动刷新';
-                btn.style.background = 'var(--color-warning)';
-            } else {
-                btn.innerHTML = '▶️ 启动自动刷新';
-                btn.style.background = 'var(--color-success)';
-            }
-        }
-
-        function saveRefreshSettings() {
-            const input = document.getElementById('refreshInterval');
-            const newInterval = parseInt(input.value);
-
-            if (isNaN(newInterval) || newInterval < 1 || newInterval > 1440) {
-                alert('请输入有效的时间间隔（1-1440分钟）');
-                return;
-            }
-
-            autoRefreshMinutes = newInterval;
-            localStorage.setItem('autoRefreshInterval', newInterval.toString());
-
-            // 如果自动刷新正在运行，重启以应用新设置
-            if (autoRefreshInterval) {
-                startAutoRefresh();
-            }
-
-            alert('自动刷新间隔已设置为 ' + newInterval + ' 分钟');
-        }
-
-        function toggleAutoRefresh() {
-            if (autoRefreshInterval) {
-                stopAutoRefresh();
-            } else {
-                startAutoRefresh();
+                if (response.ok && result.data) {
+                    const item = result.data;
+                    
+                    if (item.error) {
+                        cells[1].innerHTML = '<span class="error-row">加载失败: ' + item.error + '</span>';
+                        cells[2].colSpan = 5;
+                        for (let i = 3; i < cells.length - 1; i++) cells[i].style.display = 'none';
+                    } else {
+                        const remaining = Math.max(0, item.totalAllowance - item.orgTotalTokensUsed);
+                        [cells[1].innerHTML, cells[2].innerHTML, cells[3].innerHTML, 
+                         cells[4].innerHTML, cells[5].innerHTML, cells[6].innerHTML] = 
+                        [item.startDate, item.endDate, formatNumber(item.totalAllowance),
+                         formatNumber(item.orgTotalTokensUsed), formatNumber(remaining), formatPercentage(item.usedRatio)];
+                        
+                        for (let i = 1; i < cells.length - 1; i++) {
+                            cells[i].style.display = '';
+                            cells[i].colSpan = 1;
+                        }
+                    }
+                    loadData();
+                } else {
+                    alert('刷新失败: ' + (result.error || '未知错误'));
+                    cells.forEach((cell, index) => cell.innerHTML = originalContent[index]);
+                }
+            } catch (error) {
+                alert('网络错误: ' + error.message);
+                cells.forEach((cell, index) => cell.innerHTML = originalContent[index]);
             }
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadData();
-            initAutoRefresh();
+        document.addEventListener('click', (event) => {
+            const modal = document.getElementById('manageModal');
+            if (event.target === modal) closeManageModal();
         });
     </script>
 </body>
 </html>
-`;
+`;  
+  
+  
+// ==================== API Data Fetching ====================
 
-// Continue with API functions...
-async function fetchApiKeyData(id: string, key: string) {
-    try {
-        const response = await fetch('https://app.factory.ai/api/organization/members/chat-usage', {
-            headers: {
-                'Authorization': `Bearer ${key}`,
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-            }
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error(`Error fetching data for key ID ${id}: ${response.status} ${errorBody}`);
-            return { id, key: `${key.substring(0, 4)}...`, error: `HTTP ${response.status}` };
-        }
-
-        const apiData = await response.json();
-        if (!apiData.usage || !apiData.usage.standard) {
-            return { id, key: `${key.substring(0, 4)}...`, error: 'Invalid API response structure' };
-        }
-
-        const usageInfo = apiData.usage;
-        const standardUsage = usageInfo.standard;
-
-        const formatDate = (timestamp: number) => {
-            if (!timestamp && timestamp !== 0) return 'N/A';
-            try {
-                return new Date(timestamp).toISOString().split('T')[0];
-            } catch (e) {
-                return 'Invalid Date';
-            }
-        }
-
-        const maskedKey = `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
-        return {
-            id,
-            key: maskedKey,
-            startDate: formatDate(usageInfo.startDate),
-            endDate: formatDate(usageInfo.endDate),
-            orgTotalTokensUsed: standardUsage.orgTotalTokensUsed,
-            totalAllowance: standardUsage.totalAllowance,
-            usedRatio: standardUsage.usedRatio,
-        };
-    } catch (error) {
-        console.error(`Failed to process key ID ${id}:`, error);
-        return { id, key: `${key.substring(0, 4)}...`, error: 'Failed to fetch' };
+/**
+ * Batch process promises with concurrency control to avoid rate limiting.
+ */
+async function batchProcess<T, R>(
+  items: T[],
+  processor: (item: T) => Promise<R>,
+  concurrency: number = 10,
+  delayMs: number = 100
+): Promise<R[]> {
+  const results: R[] = [];
+  
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map(processor));
+    results.push(...batchResults);
+    
+    // Add delay between batches to avoid rate limiting
+    if (i + concurrency < items.length) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
     }
+  }
+  
+  return results;
 }
 
-async function getAggregatedData() {
-    const keyEntries = await getAllApiKeys();
+/**
+ * Fetches usage data for a single API key with retry logic.
+ */
+async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise<ApiKeyResult> {
+  const maskedKey = maskApiKey(key);
+  const maxRetries = 2;
 
-    if (keyEntries.length === 0) {
-        throw new Error("No API keys found in storage. Please import keys first.");
-    }
-
-    const results = await Promise.all(keyEntries.map(entry => fetchApiKeyData(entry.id, entry.key)));
-    const validResults = results.filter(r => !r.error);
-
-    const totals = validResults.reduce((acc, res) => {
-        acc.total_orgTotalTokensUsed += res.orgTotalTokensUsed || 0;
-        acc.total_totalAllowance += res.totalAllowance || 0;
-        return acc;
-    }, {
-        total_orgTotalTokensUsed: 0,
-        total_totalAllowance: 0,
+  try {
+    const response = await fetch(CONFIG.API_ENDPOINT, {
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'User-Agent': CONFIG.USER_AGENT,
+      }
     });
 
-    const beijingTime = new Date(Date.now() + 8 * 60 * 60 * 1000);
-
-    const keysWithBalance = validResults.filter(r => {
-        const remaining = (r.totalAllowance || 0) - (r.orgTotalTokensUsed || 0);
-        return remaining > 0;
-    });
-
-    if (keysWithBalance.length > 0) {
-        console.log("\n" + "=".repeat(80));
-        console.log("📋 剩余额度大于0的API Keys:");
-        console.log("-".repeat(80));
-        keysWithBalance.forEach(item => {
-            const originalEntry = keyEntries.find(e => e.id === item.id);
-            if (originalEntry) {
-                console.log(originalEntry.key);
-            }
-        });
-        console.log("=".repeat(80) + "\n");
-    } else {
-        console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
+    if (!response.ok) {
+      if (response.status === 401 && retryCount < maxRetries) {
+        const delayMs = (retryCount + 1) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return fetchApiKeyData(id, key, retryCount + 1);
+      }
+      return { id, key: maskedKey, error: `HTTP ${response.status}` };
     }
 
+    const apiData: ApiResponse = await response.json();
+    const { usage } = apiData;
+    
+    if (!usage?.standard) {
+      return { id, key: maskedKey, error: 'Invalid API response' };
+    }
+
+    const { standard } = usage;
     return {
-        update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
-        total_count: keyEntries.length,
-        totals,
-        data: results,
+      id,
+      key: maskedKey,
+      startDate: formatDate(usage.startDate),
+      endDate: formatDate(usage.endDate),
+      orgTotalTokensUsed: standard.orgTotalTokensUsed || 0,
+      totalAllowance: standard.totalAllowance || 0,
+      usedRatio: standard.usedRatio || 0,
     };
+  } catch (error) {
+    return { id, key: maskedKey, error: 'Failed to fetch' };
+  }
+}  
+  
+  
+// ==================== Type Guards ====================
+
+const isApiUsageData = (result: ApiKeyResult): result is ApiUsageData => !('error' in result);
+
+// ==================== Data Aggregation ====================
+
+/**
+ * Aggregates data from all configured API keys.
+ */
+async function getAggregatedData(): Promise<AggregatedResponse> {
+  const keyPairs = await getAllKeys();
+  const beijingTime = getBeijingTime();
+  const emptyResponse = {
+    update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
+    total_count: 0,
+    totals: { total_orgTotalTokensUsed: 0, total_totalAllowance: 0, totalRemaining: 0 },
+    data: [],
+  };
+
+  if (keyPairs.length === 0) return emptyResponse;
+
+  const results = await batchProcess(
+    keyPairs,
+    ({ id, key }) => fetchApiKeyData(id, key),
+    10,
+    100
+  );
+
+  const validResults = results.filter(isApiUsageData);
+  const sortedValid = validResults
+    .map(r => ({ ...r, remaining: Math.max(0, r.totalAllowance - r.orgTotalTokensUsed) }))
+    .sort((a, b) => b.remaining - a.remaining)
+    .map(({ remaining, ...rest }) => rest);
+
+  const totals = validResults.reduce((acc, res) => ({
+    total_orgTotalTokensUsed: acc.total_orgTotalTokensUsed + res.orgTotalTokensUsed,
+    total_totalAllowance: acc.total_totalAllowance + res.totalAllowance,
+    totalRemaining: acc.totalRemaining + Math.max(0, res.totalAllowance - res.orgTotalTokensUsed)
+  }), emptyResponse.totals);
+
+  logKeysWithBalance(validResults, keyPairs);
+
+  return {
+    update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
+    total_count: keyPairs.length,
+    totals,
+    data: [...sortedValid, ...results.filter(r => 'error' in r)],
+  };
 }
 
-// Main HTTP request handler
+/**
+ * Logs API keys that still have remaining balance.
+ */
+function logKeysWithBalance(validResults: ApiUsageData[], keyPairs: ApiKey[]): void {
+  const keysWithBalance = validResults.filter(r => {
+    const remaining = r.totalAllowance - r.orgTotalTokensUsed;
+    return remaining > 0;
+  });
+
+  if (keysWithBalance.length > 0) {
+    console.log("=".repeat(80));
+    console.log("📋 剩余额度大于0的API Keys:");
+    console.log("-".repeat(80));
+
+    keysWithBalance.forEach(item => {
+      const originalKeyPair = keyPairs.find(kp => kp.id === item.id);
+      if (originalKeyPair) {
+        console.log(originalKeyPair.key);
+      }
+    });
+
+    console.log("=".repeat(80) + "\n");
+  } else {
+    console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
+  }
+}  
+
+
+// ==================== Auto-Refresh Logic (NEW) ====================
+
+/**
+ * Periodically fetches data and updates the server state cache.
+ */
+async function autoRefreshData() {
+  if (serverState.isCurrentlyUpdating()) return;
+  
+  const timestamp = format(getBeijingTime(), "HH:mm:ss");
+  console.log(`[${timestamp}] Starting data refresh...`);
+  serverState.startUpdate();
+  
+  try {
+    const data = await getAggregatedData();
+    serverState.updateCache(data);
+    console.log(`[${timestamp}] Data updated successfully.`);
+  } catch (error) {
+    serverState.setError(error instanceof Error ? error.message : 'Refresh failed');
+  }
+}
+
+  
+  
+// ==================== Route Handlers ====================
+
+/**
+ * Handles the root path - serves the HTML dashboard.
+ */
+function handleRoot(): Response {
+  return new Response(HTML_CONTENT, {
+    headers: { "Content-Type": "text/html; charset=utf-8" }
+  });
+}
+
+/**
+ * Handles the /api/data endpoint - returns cached aggregated usage data.
+ */
+async function handleGetData(): Promise<Response> {
+  const cachedData = serverState.getData();
+  
+  if (cachedData) {
+    return createJsonResponse(cachedData);
+  }
+  
+  const lastError = serverState.getError();
+  if (lastError) {
+    return createErrorResponse(lastError, 500);
+  }
+
+  // If there's no data and no error, it means an update is in progress
+  if (serverState.isCurrentlyUpdating()) {
+    return createErrorResponse("数据正在更新中，请稍候...", 503);
+  }
+
+  // This shouldn't happen normally after initial load, but just in case
+  return createErrorResponse("暂无数据，请稍后刷新。", 503);
+}
+
+/**
+ * Handles GET /api/keys - returns all stored API keys.
+ */
+async function handleGetKeys(): Promise<Response> {
+  try {
+    const keys = await getAllKeys();
+    return createJsonResponse(keys);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error getting keys:', errorMessage);
+    return createErrorResponse(errorMessage, 500);
+  }
+}
+
+/**
+ * Handles POST /api/keys - adds single or multiple API keys.
+ */
+async function handleAddKeys(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+
+    // Support batch import
+    if (Array.isArray(body)) {
+      return await handleBatchImport(body);
+    } else {
+      return await handleSingleKeyAdd(body);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Invalid JSON';
+    console.error('Error adding keys:', errorMessage);
+    return createErrorResponse(errorMessage, 400);
+  }
+}
+
+async function handleBatchImport(items: unknown[]): Promise<Response> {
+  let added = 0, skipped = 0;
+  const existingKeys = new Set((await getAllKeys()).map(k => k.key));
+
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || !('key' in item)) continue;
+    
+    const { key } = item as { key: string };
+    if (!key || existingKeys.has(key)) {
+      if (key) skipped++;
+      continue;
+    }
+
+    const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    await addKey(id, key);
+    existingKeys.add(key);
+    added++;
+  }
+
+  if (added > 0) autoRefreshData();
+
+  return createJsonResponse({ success: true, added, skipped });
+}
+
+async function handleSingleKeyAdd(body: unknown): Promise<Response> {
+  if (!body || typeof body !== 'object' || !('key' in body)) {
+    return createErrorResponse("key is required", 400);
+  }
+
+  const { key } = body as { key: string };
+  if (!key) return createErrorResponse("key cannot be empty", 400);
+  if (await apiKeyExists(key)) return createErrorResponse("API key already exists", 409);
+
+  const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  await addKey(id, key);
+  autoRefreshData();
+  
+  return createJsonResponse({ success: true });
+}
+
+async function handleDeleteKey(pathname: string): Promise<Response> {
+  const id = pathname.split("/api/keys/")[1];
+  if (!id) return createErrorResponse("Key ID is required", 400);
+
+  await deleteKey(id);
+  autoRefreshData();
+  
+  return createJsonResponse({ success: true });
+}
+
+async function handleBatchDeleteKeys(req: Request): Promise<Response> {
+  try {
+    const { ids } = await req.json() as { ids: string[] };
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return createErrorResponse("ids array is required", 400);
+    }
+
+    await Promise.all(ids.map(id => deleteKey(id).catch(() => {})));
+    autoRefreshData();
+
+    return createJsonResponse({ success: true, deleted: ids.length });
+  } catch (error) {
+    return createErrorResponse(error instanceof Error ? error.message : 'Invalid JSON', 400);
+  }
+}
+
+/**
+ * Handles POST /api/keys/export - exports all API keys with password verification.
+ */
+async function handleExportKeys(req: Request): Promise<Response> {
+  try {
+    const { password } = await req.json() as { password: string };
+
+    // Verify password
+    if (password !== CONFIG.EXPORT_PASSWORD) {
+      return createErrorResponse("密码错误", 401);
+    }
+
+    // Get all keys (unmasked)
+    const keys = await getAllKeys();
+
+    return createJsonResponse({
+      success: true,
+      keys
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Invalid JSON';
+    console.error('Error exporting keys:', errorMessage);
+    return createErrorResponse(errorMessage, 400);
+  }
+}
+
+/**
+ * Handles POST /api/keys/:id/refresh - refreshes data for a single API key.
+ */
+async function handleRefreshSingleKey(pathname: string): Promise<Response> {
+  try {
+    const id = pathname.split("/api/keys/")[1].replace("/refresh", "");
+
+    if (!id) {
+      return createErrorResponse("Key ID is required", 400);
+    }
+
+    // Get the key from database
+    const result = await kv.get<string>(["api_keys", id]);
+    
+    if (!result.value) {
+      return createErrorResponse("Key not found", 404);
+    }
+
+    const key = result.value;
+
+    // Fetch fresh data for this key
+    const keyData = await fetchApiKeyData(id, key);
+
+    return createJsonResponse({
+      success: true,
+      data: keyData
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error refreshing key:', errorMessage);
+    return createErrorResponse(errorMessage, 500);
+  }
+}
+
+// ==================== Main Request Handler ====================
+
+/**
+ * Main HTTP request handler that routes requests to appropriate handlers.
+ */
 async function handler(req: Request): Promise<Response> {
-    const url = new URL(req.url);
-    const headers = {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-    };
+  const url = new URL(req.url);
 
-    // Handle CORS preflight
-    if (req.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers });
-    }
+  // Route: Root path - Dashboard
+  if (url.pathname === "/") {
+    return handleRoot();
+  }
 
-    // Login endpoint
-    if (url.pathname === "/api/login" && req.method === "POST") {
-        try {
-            const body = await req.json();
-            const { password } = body;
+  // Route: GET /api/data - Get aggregated usage data
+  if (url.pathname === "/api/data" && req.method === "GET") {
+    return await handleGetData();
+  }
 
-            if (password === ADMIN_PASSWORD) {
-                const sessionId = await createSession();
-                const response = new Response(JSON.stringify({ success: true }), { headers });
+  // Route: GET /api/keys - Get all keys
+  if (url.pathname === "/api/keys" && req.method === "GET") {
+    return await handleGetKeys();
+  }
 
-                setCookie(response.headers, {
-                    name: "session",
-                    value: sessionId,
-                    maxAge: 7 * 24 * 60 * 60, // 7 days
-                    path: "/",
-                    httpOnly: true,
-                    secure: true,
-                    sameSite: "Lax",
-                });
+  // Route: POST /api/keys - Add key(s)
+  if (url.pathname === "/api/keys" && req.method === "POST") {
+    return await handleAddKeys(req);
+  }
 
-                return response;
-            } else {
-                return new Response(JSON.stringify({ error: "Invalid password" }), {
-                    status: 401,
-                    headers,
-                });
-            }
-        } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
-                status: 500,
-                headers,
-            });
-        }
-    }
+  // Route: POST /api/keys/batch-delete - Batch delete keys
+  if (url.pathname === "/api/keys/batch-delete" && req.method === "POST") {
+    return await handleBatchDeleteKeys(req);
+  }
 
-    // Show login page if password is set and not authenticated
-    if (ADMIN_PASSWORD && url.pathname === "/") {
-        const authenticated = await isAuthenticated(req);
-        if (!authenticated) {
-            return new Response(LOGIN_PAGE, {
-                headers: { "Content-Type": "text/html; charset=utf-8" }
-            });
-        }
-    }
+  // Route: POST /api/keys/export - Export keys with password
+  if (url.pathname === "/api/keys/export" && req.method === "POST") {
+    return await handleExportKeys(req);
+  }
 
-    // Home page
-    if (url.pathname === "/") {
-        return new Response(HTML_CONTENT, {
-            headers: { "Content-Type": "text/html; charset=utf-8" }
-        });
-    }
+  // Route: DELETE /api/keys/:id - Delete a key
+  if (url.pathname.startsWith("/api/keys/") && req.method === "DELETE") {
+    return await handleDeleteKey(url.pathname);
+  }
 
-    // Protected routes - require authentication
-    const authenticated = await isAuthenticated(req);
-    if (ADMIN_PASSWORD && !authenticated) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
-            headers,
-        });
-    }
+  // Route: POST /api/keys/:id/refresh - Refresh single key
+  if (url.pathname.match(/^\/api\/keys\/.+\/refresh$/) && req.method === "POST") {
+    return await handleRefreshSingleKey(url.pathname);
+  }
 
-    // Get usage data
-    if (url.pathname === "/api/data") {
-        try {
-            const data = await getAggregatedData();
-            return new Response(JSON.stringify(data), { headers });
-        } catch (error) {
-            console.error(error);
-            return new Response(JSON.stringify({ error: error.message }), {
-                status: 500,
-                headers,
-            });
-        }
-    }
-
-    // Get all keys
-    if (url.pathname === "/api/keys" && req.method === "GET") {
-        try {
-            const keys = await getAllApiKeys();
-            const safeKeys = keys.map(k => ({
-                id: k.id,
-                name: k.name,
-                createdAt: k.createdAt,
-                masked: `${k.key.substring(0, 4)}...${k.key.substring(k.key.length - 4)}`
-            }));
-            return new Response(JSON.stringify(safeKeys), { headers });
-        } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
-                status: 500,
-                headers,
-            });
-        }
-    }
-
-    // Batch import keys
-    if (url.pathname === "/api/keys/import" && req.method === "POST") {
-        try {
-            const body = await req.json();
-            const keys = body.keys as string[];
-
-            if (!Array.isArray(keys)) {
-                return new Response(JSON.stringify({ error: "Invalid request: 'keys' must be an array" }), {
-                    status: 400,
-                    headers,
-                });
-            }
-
-            const result = await batchImportKeys(keys);
-            return new Response(JSON.stringify(result), { headers });
-        } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
-                status: 500,
-                headers,
-            });
-        }
-    }
-
-    // Get full API key by ID
-    if (url.pathname.match(/^\/api\/keys\/[^\/]+\/full$/) && req.method === "GET") {
-        try {
-            const parts = url.pathname.split("/");
-            const id = parts[3];
-            if (!id) {
-                return new Response(JSON.stringify({ error: "Key ID required" }), {
-                    status: 400,
-                    headers,
-                });
-            }
-
-            const keyEntry = await getApiKey(id);
-            if (!keyEntry) {
-                return new Response(JSON.stringify({ error: "Key not found" }), {
-                    status: 404,
-                    headers,
-                });
-            }
-
-            return new Response(JSON.stringify({ id: keyEntry.id, key: keyEntry.key }), { headers });
-        } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
-                status: 500,
-                headers,
-            });
-        }
-    }
-
-    // Batch delete keys
-    if (url.pathname === "/api/keys/batch-delete" && req.method === "POST") {
-        try {
-            const body = await req.json();
-            const ids = body.ids as string[];
-
-            if (!Array.isArray(ids) || ids.length === 0) {
-                return new Response(JSON.stringify({ error: "Invalid request: 'ids' must be a non-empty array" }), {
-                    status: 400,
-                    headers,
-                });
-            }
-
-            const result = await batchDeleteKeys(ids);
-            return new Response(JSON.stringify(result), { headers });
-        } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
-                status: 500,
-                headers,
-            });
-        }
-    }
-
-    // Delete a key
-    if (url.pathname.startsWith("/api/keys/") && req.method === "DELETE") {
-        try {
-            const id = url.pathname.split("/").pop();
-            if (!id || id === "batch-delete") {
-                return new Response(JSON.stringify({ error: "Key ID required" }), {
-                    status: 400,
-                    headers,
-                });
-            }
-
-            await deleteApiKey(id);
-            return new Response(JSON.stringify({ success: true }), { headers });
-        } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
-                status: 500,
-                headers,
-            });
-        }
-    }
-
-    // Add a single key
-    if (url.pathname === "/api/keys" && req.method === "POST") {
-        try {
-            const body = await req.json();
-            const { key, name } = body;
-
-            if (!key) {
-                return new Response(JSON.stringify({ error: "Key is required" }), {
-                    status: 400,
-                    headers,
-                });
-            }
-
-            const id = `key-${Date.now()}`;
-            await saveApiKey(id, key, name);
-            return new Response(JSON.stringify({ success: true, id }), { headers });
-        } catch (error) {
-            return new Response(JSON.stringify({ error: error.message }), {
-                status: 500,
-                headers,
-            });
-        }
-    }
-
-    return new Response("Not Found", { status: 404 });
+  // 404 for all other routes
+  return new Response("Not Found", { status: 404 });
 }
 
-console.log("🚀 Server running on http://localhost:8000");
-console.log(`🔐 Password Protection: ${ADMIN_PASSWORD ? 'ENABLED ✅' : 'DISABLED ⚠️'}`);
-serve(handler);
+// ==================== Server Initialization ====================
+
+async function startServer() {
+  console.log("Initializing server...");
+  
+  // Perform an initial data fetch on startup and WAIT for it to complete
+  console.log("Performing initial data fetch...");
+  await autoRefreshData();
+  console.log("Initial data loaded successfully.");
+  
+  // Set up the interval for subsequent refreshes
+  setInterval(autoRefreshData, CONFIG.AUTO_REFRESH_INTERVAL_SECONDS * 1000);
+  
+  console.log(`Server running on http://localhost:${CONFIG.PORT}`);
+  serve(handler, { port: CONFIG.PORT });
+}
+
+startServer();
