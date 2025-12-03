@@ -171,294 +171,298 @@ const HTML_CONTENT = `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API 余额监控看板</title>  
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary: #6366f1;
-            --primary-dark: #4f46e5;
-            --secondary: #8b5cf6;
+            --primary: #8b5cf6;
+            --primary-glow: rgba(139, 92, 246, 0.5);
+            --secondary: #06b6d4;
+            --secondary-glow: rgba(6, 182, 212, 0.5);
             --success: #10b981;
             --danger: #ef4444;
             --warning: #f59e0b;
             --bg-dark: #0f172a;
-            --bg-card: rgba(255, 255, 255, 0.95);
-            --text-primary: #1e293b;
-            --text-secondary: #64748b;
-            --border: rgba(148, 163, 184, 0.2);
-            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            --bg-card: rgba(30, 41, 59, 0.7);
+            --bg-card-hover: rgba(51, 65, 85, 0.8);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: rgba(148, 163, 184, 0.1);
+            --glass-border: 1px solid rgba(255, 255, 255, 0.05);
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
         }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body { 
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif; 
-            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%);
+            font-family: 'Outfit', sans-serif; 
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 0% 100%, rgba(6, 182, 212, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-primary);
             min-height: 100vh; 
             padding: 24px;
-            background-attachment: fixed;
+            overflow-x: hidden;
         }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
+
         .container { 
             max-width: 1600px; 
             margin: 0 auto; 
-            background: var(--bg-card);
-            backdrop-filter: blur(20px);
-            border-radius: 24px; 
-            box-shadow: var(--shadow-lg);
-            overflow: hidden;
-            border: 1px solid var(--border);
+            animation: fadeIn 0.6s ease-out;
         }
+
+        /* Header */
         .header { 
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); 
-            color: white; 
-            padding: 32px 40px; 
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: var(--glass-border);
+            border-radius: 24px; 
+            padding: 24px 32px; 
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
             position: relative;
+            overflow: hidden;
         }
-        .header-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
-        .header-left h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px; }
-        .header-left .update-time { font-size: 13px; opacity: 0.85; font-weight: 500; }
-        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-        .header-btn { 
-            background: rgba(255, 255, 255, 0.15); 
-            color: white; 
-            border: 1px solid rgba(255, 255, 255, 0.3); 
-            border-radius: 10px; 
-            padding: 10px 18px; 
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 2px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+        }
+
+        .header-left h1 { 
+            font-size: 28px; 
+            font-weight: 700; 
+            background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-left .update-time { 
             font-size: 13px; 
-            font-weight: 600;
-            cursor: pointer; 
-            transition: all 0.2s ease;
+            color: var(--text-secondary); 
+            font-weight: 400; 
             display: flex;
             align-items: center;
             gap: 6px;
-            backdrop-filter: blur(10px);
         }
-        .header-btn:hover { background: rgba(255, 255, 255, 0.25); transform: translateY(-1px); }
-        .header-btn:active { transform: translateY(0); }
-        .header-btn.danger { background: rgba(239, 68, 68, 0.3); border-color: rgba(239, 68, 68, 0.5); }
-        .header-btn.danger:hover { background: rgba(239, 68, 68, 0.4); }
-        .header-btn.success { background: rgba(16, 185, 129, 0.3); border-color: rgba(16, 185, 129, 0.5); }
-        .header-btn.success:hover { background: rgba(16, 185, 129, 0.4); }
-        .stats-cards { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
-            gap: 20px; 
-            padding: 28px 40px; 
-            background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-        }
-        .stat-card { 
-            background: white; 
-            border-radius: 16px; 
-            padding: 24px; 
-            text-align: center; 
-            box-shadow: var(--shadow);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border: 1px solid var(--border);
-            position: relative;
-            overflow: hidden;
-        }
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, var(--primary), var(--secondary));
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        .stat-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
-        .stat-card:hover::before { opacity: 1; }
-        .stat-card .icon { font-size: 32px; margin-bottom: 12px; }
-        .stat-card .label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-        .stat-card .value { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        .table-container { padding: 0 40px 40px 40px; overflow-x: auto; }
-        .table-wrapper { 
-            background: white; 
-            border-radius: 16px; 
-            overflow: hidden; 
-            box-shadow: var(--shadow);
-            border: 1px solid var(--border);
-        }
-        table { width: 100%; border-collapse: collapse; }
-        thead { background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); color: white; }
-        th { padding: 16px 20px; text-align: left; font-weight: 600; font-size: 13px; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
-        th.number { text-align: right; }
-        td { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--text-primary); }
-        td.number { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
-        td.error-row { color: var(--danger); font-weight: 500; }
-        tbody tr { transition: all 0.15s ease; }
-        tbody tr:hover { background: linear-gradient(90deg, rgba(99, 102, 241, 0.04), rgba(139, 92, 246, 0.04)); }
-        tbody tr:last-child td { border-bottom: none; }
-        .key-cell { 
-            font-family: 'SF Mono', 'Fira Code', monospace; 
-            color: var(--text-secondary); 
-            max-width: 180px; 
-            overflow: hidden; 
-            text-overflow: ellipsis; 
-            white-space: nowrap;
-            font-size: 13px;
-            background: #f8fafc;
-            padding: 6px 10px;
-            border-radius: 6px;
-            display: inline-block;
-        }
-        .loading { 
-            text-align: center; 
-            padding: 60px 40px; 
-            color: var(--text-secondary);
-        }
-        .loading-spinner {
-            width: 48px;
-            height: 48px;
-            border: 4px solid var(--border);
-            border-top-color: var(--primary);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin: 0 auto 16px;
-        }
-        .error { text-align: center; padding: 60px 40px; color: var(--danger); }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 50%; border-top-color: white; animation: spin 0.8s linear infinite; }
-        
-        /* Floating refresh button */
-        .fab-refresh {
-            position: fixed;
-            bottom: 32px;
-            right: 32px;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white;
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-        }
-        .fab-refresh:hover { transform: translateY(-4px) scale(1.05); box-shadow: 0 12px 32px rgba(99, 102, 241, 0.5); }
-        .fab-refresh:active { transform: translateY(-2px) scale(1.02); }
-        .fab-refresh .spinner { width: 24px; height: 24px; border-width: 3px; }
 
-        /* Modal styles */
-        .modal { 
-            display: none; 
-            position: fixed; 
-            top: 0; left: 0; 
-            width: 100%; height: 100%; 
-            background: rgba(15, 23, 42, 0.7); 
-            backdrop-filter: blur(4px);
-            z-index: 1000; 
-            align-items: center; 
-            justify-content: center;
-            animation: fadeIn 0.2s ease;
-        }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .modal.show { display: flex; }
-        .modal-content { 
-            background: white; 
-            border-radius: 20px; 
-            width: 90%; 
-            max-width: 600px; 
-            max-height: 85vh; 
-            overflow: auto; 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            animation: slideUp 0.3s ease;
-        }
-        .modal-header { 
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); 
-            color: white; 
-            padding: 24px 32px; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-        }
-        .modal-header h2 { font-size: 20px; font-weight: 700; }
-        .close-btn { 
-            background: rgba(255,255,255,0.2); 
-            border: none; 
-            color: white; 
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            font-size: 20px; 
-            cursor: pointer; 
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .close-btn:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
-        .modal-body { padding: 32px; }
-        .form-group { margin-bottom: 24px; }
-        .form-group label { display: block; margin-bottom: 10px; font-weight: 600; color: var(--text-primary); font-size: 14px; }
-        .form-group input, .form-group textarea { 
-            width: 100%; 
-            padding: 14px 16px; 
-            border: 2px solid var(--border); 
-            border-radius: 12px; 
-            font-size: 14px; 
-            font-family: inherit;
-            transition: all 0.2s ease;
-            background: #f8fafc;
-        }
-        .form-group input:focus, .form-group textarea:focus { 
-            outline: none; 
-            border-color: var(--primary); 
-            background: white;
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
-        }
-        .form-group textarea { min-height: 180px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.6; resize: vertical; }
+        .header-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
         .btn { 
-            padding: 12px 24px; 
-            border: none; 
-            border-radius: 10px; 
+            background: rgba(255, 255, 255, 0.05); 
+            color: var(--text-primary); 
+            border: 1px solid rgba(255, 255, 255, 0.1); 
+            border-radius: 12px; 
+            padding: 10px 20px; 
             font-size: 14px; 
+            font-weight: 500;
             cursor: pointer; 
-            transition: all 0.2s ease; 
-            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: inline-flex;
             align-items: center;
             gap: 8px;
+            font-family: inherit;
         }
-        .btn-primary { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3); }
-        .btn-secondary { background: #e2e8f0; color: var(--text-primary); }
-        .btn-secondary:hover { background: #cbd5e1; }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-danger:hover { background: #dc2626; }
-        .btn-sm { padding: 8px 14px; font-size: 12px; border-radius: 8px; }
-        .btn-group { display: flex; gap: 12px; margin-top: 24px; }
-        .success-msg { 
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05)); 
-            color: #065f46; 
-            padding: 14px 18px; 
-            border-radius: 12px; 
-            margin-bottom: 20px; 
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            font-weight: 500;
+
+        .btn:hover { 
+            background: rgba(255, 255, 255, 0.1); 
+            transform: translateY(-2px); 
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            border-color: rgba(255, 255, 255, 0.2);
         }
-        .error-msg { 
-            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)); 
-            color: #991b1b; 
-            padding: 14px 18px; 
-            border-radius: 12px; 
-            margin-bottom: 20px; 
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            font-weight: 500;
+
+        .btn:active { transform: translateY(0); }
+
+        .btn-primary { 
+            background: linear-gradient(135deg, var(--primary), #7c3aed); 
+            border: none;
+            box-shadow: 0 4px 12px var(--primary-glow);
         }
-        
-        /* Progress bar for usage */
-        .progress-bar {
+        .btn-primary:hover { 
+            background: linear-gradient(135deg, #7c3aed, var(--primary)); 
+            box-shadow: 0 6px 16px var(--primary-glow);
+        }
+
+        .btn-success { 
+            background: rgba(16, 185, 129, 0.1); 
+            color: #34d399; 
+            border-color: rgba(16, 185, 129, 0.2); 
+        }
+        .btn-success:hover { 
+            background: rgba(16, 185, 129, 0.2); 
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+        }
+
+        .btn-danger { 
+            background: rgba(239, 68, 68, 0.1); 
+            color: #f87171; 
+            border-color: rgba(239, 68, 68, 0.2); 
+        }
+        .btn-danger:hover { 
+            background: rgba(239, 68, 68, 0.2); 
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+        }
+
+        /* Stats Cards */
+        .stats-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); 
+            gap: 24px; 
+            margin-bottom: 24px;
+        }
+
+        .stat-card { 
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: var(--glass-border);
+            border-radius: 20px; 
+            padding: 24px; 
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow);
+        }
+
+        .stat-card:hover { 
+            transform: translateY(-4px); 
+            background: var(--bg-card-hover);
+            box-shadow: var(--shadow-lg);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0; bottom: 0; left: 0;
+            background: radial-gradient(circle at top right, rgba(255,255,255,0.03), transparent 60%);
+            pointer-events: none;
+        }
+
+        .stat-icon { 
+            width: 48px; height: 48px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px;
+            margin-bottom: 16px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .stat-label { 
+            font-size: 13px; 
+            color: var(--text-secondary); 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .stat-value { 
+            font-size: 32px; 
+            font-weight: 700; 
+            color: white;
+            letter-spacing: -0.5px;
+        }
+
+        .stat-value.gradient {
+            background: linear-gradient(135deg, var(--secondary), var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Table */
+        .table-container { 
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            border: var(--glass-border);
+            border-radius: 24px; 
+            padding: 24px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .table-wrapper { overflow-x: auto; }
+
+        table { width: 100%; border-collapse: separate; border-spacing: 0; }
+
+        th { 
+            text-align: left; 
+            padding: 16px 20px; 
+            color: var(--text-secondary); 
+            font-size: 12px; 
+            font-weight: 600; 
+            text-transform: uppercase; 
+            letter-spacing: 1px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td { 
+            padding: 20px; 
+            color: var(--text-primary); 
+            font-size: 14px; 
+            border-bottom: 1px solid var(--border);
+            transition: background 0.2s;
+        }
+
+        tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
+        tbody tr:last-child td { border-bottom: none; }
+
+        .key-badge { 
+            font-family: 'SF Mono', 'Fira Code', monospace; 
+            background: rgba(0, 0, 0, 0.3); 
+            padding: 6px 12px; 
+            border-radius: 8px; 
+            font-size: 12px; 
+            color: #cbd5e1;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: inline-block;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: middle;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-dot.active { background: var(--success); box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
+        .status-dot.warning { background: var(--warning); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
+        .status-dot.danger { background: var(--danger); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+
+        /* Progress Bar */
+        .progress-track {
             width: 100%;
             height: 6px;
-            background: #e2e8f0;
+            background: rgba(255, 255, 255, 0.1);
             border-radius: 3px;
             overflow: hidden;
             margin-top: 8px;
@@ -466,69 +470,180 @@ const HTML_CONTENT = `
         .progress-fill {
             height: 100%;
             border-radius: 3px;
-            transition: width 0.5s ease;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .progress-low { background: linear-gradient(90deg, #10b981, #34d399); }
         .progress-medium { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
         .progress-high { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+        /* Floating Action Button */
+        .fab {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 100;
+        }
+        .fab:hover { transform: translateY(-4px) rotate(180deg); box-shadow: 0 12px 32px rgba(139, 92, 246, 0.6); }
+        .fab:active { transform: translateY(-2px); }
+
+        /* Modal */
+        .modal { 
+            display: none; 
+            position: fixed; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            background: rgba(0, 0, 0, 0.8); 
+            backdrop-filter: blur(8px);
+            z-index: 1000; 
+            align-items: center; 
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .modal.show { display: flex; opacity: 1; }
         
+        .modal-content { 
+            background: #1e293b; 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px; 
+            width: 90%; 
+            max-width: 600px; 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transform: scale(0.95);
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .modal.show .modal-content { transform: scale(1); }
+
+        .modal-header { 
+            padding: 24px 32px; 
+            border-bottom: 1px solid var(--border);
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+        }
+        .modal-header h2 { font-size: 20px; font-weight: 600; color: white; }
+
+        .close-btn { 
+            background: transparent; 
+            border: none; 
+            color: var(--text-secondary); 
+            font-size: 24px; 
+            cursor: pointer; 
+            transition: color 0.2s;
+        }
+        .close-btn:hover { color: white; }
+
+        .modal-body { padding: 32px; }
+
+        .form-group label { display: block; margin-bottom: 10px; color: var(--text-primary); font-size: 14px; font-weight: 500; }
+        .form-group textarea { 
+            width: 100%; 
+            padding: 16px; 
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border); 
+            border-radius: 12px; 
+            color: white;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            min-height: 200px;
+            resize: vertical;
+            transition: border-color 0.2s;
+        }
+        .form-group textarea:focus { outline: none; border-color: var(--primary); }
+
+        /* Loading & Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .spinner { 
+            width: 20px; height: 20px; 
+            border: 2px solid rgba(255,255,255,0.3); 
+            border-top-color: white; 
+            border-radius: 50%; 
+            animation: spin 0.8s linear infinite; 
+        }
+
+        .loading-container { text-align: center; padding: 60px; color: var(--text-secondary); }
+        .loading-spinner-lg {
+            width: 48px; height: 48px;
+            border: 4px solid rgba(139, 92, 246, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
-            body { padding: 12px; }
-            .header { padding: 20px; }
-            .header-content { flex-direction: column; align-items: flex-start; }
-            .header-left h1 { font-size: 22px; }
-            .header-actions { width: 100%; justify-content: flex-start; }
-            .stats-cards { padding: 20px; gap: 12px; grid-template-columns: repeat(2, 1fr); }
-            .stat-card { padding: 16px; }
-            .stat-card .value { font-size: 22px; }
-            .table-container { padding: 0 16px 24px; }
-            th, td { padding: 12px 10px; font-size: 12px; }
-            .fab-refresh { width: 52px; height: 52px; bottom: 20px; right: 20px; }
+            body { padding: 16px; }
+            .header { padding: 20px; flex-direction: column; align-items: stretch; }
+            .header-actions { justify-content: stretch; }
+            .header-actions .btn { flex: 1; justify-content: center; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .table-container { padding: 0; border-radius: 16px; }
+            th, td { padding: 16px; }
+            .fab { bottom: 20px; right: 20px; }
         }
     </style>  
 </head>  
 <body>
     <div class="container">
         <div class="header">
-            <div class="header-content">
-                <div class="header-left">
-                    <h1>🚀 API 余额监控看板</h1>
-                    <div class="update-time" id="updateTime">正在加载...</div>
+            <div class="header-left">
+                <h1>
+                    <span>⚡</span> API 监控看板
+                </h1>
+                <div class="update-time" id="updateTime">
+                    <span class="spinner" style="width: 14px; height: 14px; border-width: 1px;"></span> 正在连接...
                 </div>
-                <div class="header-actions">
-                    <button class="header-btn" onclick="openManageModal()">
-                        <span>➕</span> 导入 Key
-                    </button>
-                    <button class="header-btn success" onclick="exportKeys()" id="exportKeysBtn">
-                        <span>📥</span> 导出
-                    </button>
-                    <button class="header-btn danger" onclick="deleteZeroBalanceKeys()" id="deleteZeroBtn">
-                        <span>🧹</span> 清理无效
-                    </button>
-                    <button class="header-btn danger" onclick="deleteAllKeys()" id="deleteAllBtn">
-                        <span>🗑️</span> 全部删除
-                    </button>
-                </div>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="openManageModal()">
+                    <span>＋</span> 导入 Key
+                </button>
+                <button class="btn btn-success" onclick="exportKeys()" id="exportKeysBtn">
+                    <span>📥</span> 导出
+                </button>
+                <button class="btn btn-danger" onclick="deleteZeroBalanceKeys()" id="deleteZeroBtn">
+                    <span>🧹</span> 清理无效
+                </button>
+                <button class="btn btn-danger" onclick="deleteAllKeys()" id="deleteAllBtn">
+                    <span>🗑️</span> 全部删除
+                </button>
             </div>
         </div>
 
-        <div class="stats-cards" id="statsCards"></div>
+        <div class="stats-grid" id="statsCards">
+            <!-- Stats will be injected here -->
+        </div>
 
         <div class="table-container">
             <div class="table-wrapper">
                 <div id="tableContent">
-                    <div class="loading">
-                        <div class="loading-spinner"></div>
-                        <div>正在加载数据...</div>
+                    <div class="loading-container">
+                        <div class="loading-spinner-lg"></div>
+                        <div>正在获取最新数据...</div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <button class="fab-refresh" onclick="loadData()" title="刷新数据">
-        <span id="refreshIcon">🔄</span>
+    <button class="fab" onclick="loadData()" title="刷新数据">
+        <span id="refreshIcon">↻</span>
         <span class="spinner" style="display: none;" id="spinner"></span>
     </button>
 
@@ -536,38 +651,33 @@ const HTML_CONTENT = `
         <div class="modal-content">
             <div class="modal-header">
                 <h2>📦 批量导入 API Key</h2>
-                <button class="close-btn" onclick="closeManageModal()">✕</button>
+                <button class="close-btn" onclick="closeManageModal()">×</button>
             </div>
             <div class="modal-body">
                 <div id="modalMessage"></div>
-
                 <form onsubmit="batchImportKeys(event)">
                     <div class="form-group">
                         <label>请输入 API Keys（每行一个）</label>
-                        <textarea id="batchKeysInput" placeholder="支持以下格式：&#10;&#10;fk-xxxxxxxxxxxxx&#10;fk-yyyyyyyyyyyyy&#10;fk-zzzzzzzzzzzzz&#10;&#10;或带自定义ID：&#10;my-key-1:fk-xxxxxxxxxxxxx"></textarea>
+                        <textarea id="batchKeysInput" placeholder="支持格式：&#10;fk-xxxxxxxxxxxxx&#10;my-id:fk-xxxxxxxxxxxxx"></textarea>
                     </div>
-                    <div class="btn-group">
-                        <button type="submit" class="btn btn-primary">🚀 开始导入</button>
-                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('batchKeysInput').value='';">清空内容</button>
+                    <div style="display: flex; gap: 12px; margin-top: 24px;">
+                        <button type="submit" class="btn btn-primary" style="flex: 1; justify-content: center;">🚀 开始导入</button>
+                        <button type="button" class="btn" style="background: rgba(255,255,255,0.1);" onclick="document.getElementById('batchKeysInput').value='';">清空</button>
                     </div>
                 </form>
             </div>
         </div>
     </div>  
   
-  
     <script>
         // Global variable to store current API data
         let currentApiData = null;
-
         const formatNumber = (num) => num ? new Intl.NumberFormat('en-US').format(num) : '0';
         const formatPercentage = (ratio) => ratio ? (ratio * 100).toFixed(2) + '%' : '0.00%';  
-  
   
         function loadData(retryCount = 0) {  
             const spinner = document.getElementById('spinner');  
             const refreshIcon = document.getElementById('refreshIcon');  
-                
             spinner.style.display = 'inline-block';  
             refreshIcon.style.display = 'none';  
   
@@ -575,24 +685,20 @@ const HTML_CONTENT = `
                 .then(response => {  
                     if (response.status === 503 && retryCount < 5) {
                         console.log(\`Server initializing, retrying in 2 seconds... (attempt \${retryCount + 1}/5)\`);
-                        document.getElementById('tableContent').innerHTML = \`<div class="loading"><div class="loading-spinner"></div><div>服务器正在初始化数据，请稍候... (尝试 \${retryCount + 1}/5)</div></div>\`;
+                        document.getElementById('tableContent').innerHTML = \`<div class="loading-container"><div class="loading-spinner-lg"></div><div>服务器正在初始化数据... (尝试 \${retryCount + 1}/5)</div></div>\`;
                         setTimeout(() => loadData(retryCount + 1), 2000);
                         return null;
                     }
-                    if (!response.ok) {  
-                        throw new Error('无法加载数据: ' + response.statusText);  
-                    }  
+                    if (!response.ok) throw new Error('无法加载数据: ' + response.statusText);  
                     return response.json();  
                 })  
                 .then(data => {
                     if (data === null) return;
-                    if (data.error) {  
-                        throw new Error(data.error);  
-                    }  
+                    if (data.error) throw new Error(data.error);  
                     displayData(data);  
                 })  
                 .catch(error => {  
-                    document.getElementById('tableContent').innerHTML = \`<div class="error">❌ 加载失败: \${error.message}</div>\`;  
+                    document.getElementById('tableContent').innerHTML = \`<div class="loading-container" style="color: var(--danger)">❌ 加载失败: \${error.message}</div>\`;  
                     document.getElementById('updateTime').textContent = "加载失败";  
                 })  
                 .finally(() => {  
@@ -601,11 +707,9 @@ const HTML_CONTENT = `
                 });  
         }  
   
-  
         function displayData(data) {
             currentApiData = data;
-
-            document.getElementById('updateTime').textContent = \`⏱️ 最后更新: \${data.update_time} · 共 \${data.total_count} 个 API Key\`;
+            document.getElementById('updateTime').innerHTML = \`🕒 最后更新: \${data.update_time} <span style="margin: 0 8px; opacity: 0.3">|</span> 共 \${data.total_count} 个 Key\`;
 
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
@@ -616,40 +720,38 @@ const HTML_CONTENT = `
             const statsCards = document.getElementById('statsCards');  
             statsCards.innerHTML = \`  
                 <div class="stat-card">
-                    <div class="icon">💰</div>
-                    <div class="label">总计额度</div>
-                    <div class="value">\${formatNumber(totalAllowance)}</div>
+                    <div class="stat-icon" style="color: #8b5cf6; background: rgba(139, 92, 246, 0.1);">💰</div>
+                    <div class="stat-label">总计额度</div>
+                    <div class="stat-value">\${formatNumber(totalAllowance)}</div>
                 </div>  
                 <div class="stat-card">
-                    <div class="icon">📊</div>
-                    <div class="label">已使用</div>
-                    <div class="value">\${formatNumber(totalUsed)}</div>
+                    <div class="stat-icon" style="color: #06b6d4; background: rgba(6, 182, 212, 0.1);">📊</div>
+                    <div class="stat-label">已使用</div>
+                    <div class="stat-value">\${formatNumber(totalUsed)}</div>
                 </div>  
                 <div class="stat-card">
-                    <div class="icon">✨</div>
-                    <div class="label">剩余额度</div>
-                    <div class="value">\${formatNumber(totalRemaining)}</div>
+                    <div class="stat-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.1);">✨</div>
+                    <div class="stat-label">剩余额度</div>
+                    <div class="stat-value gradient">\${formatNumber(totalRemaining)}</div>
                 </div>  
                 <div class="stat-card">
-                    <div class="icon">📈</div>
-                    <div class="label">使用率</div>
-                    <div class="value">\${formatPercentage(overallRatio)}</div>
-                    <div class="progress-bar"><div class="progress-fill \${progressClass}" style="width: \${Math.min(overallRatio * 100, 100)}%"></div></div>
+                    <div class="stat-icon" style="color: #f59e0b; background: rgba(245, 158, 11, 0.1);">📈</div>
+                    <div class="stat-label">使用率</div>
+                    <div class="stat-value">\${formatPercentage(overallRatio)}</div>
+                    <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(overallRatio * 100, 100)}%"></div></div>
                 </div>  
             \`;  
-  
   
             let tableHTML = \`
                 <table>
                     <thead>
                         <tr>
                             <th>API Key</th>
-                            <th>开始日期</th>
-                            <th>结束日期</th>
-                            <th class="number">总额度</th>
-                            <th class="number">已使用</th>
-                            <th class="number">剩余</th>
-                            <th class="number">使用率</th>
+                            <th>有效期</th>
+                            <th style="text-align: right;">总额度</th>
+                            <th style="text-align: right;">已使用</th>
+                            <th style="text-align: right;">剩余</th>
+                            <th style="width: 200px;">使用率</th>
                             <th style="text-align: center;">操作</th>
                         </tr>
                     </thead>
@@ -659,45 +761,48 @@ const HTML_CONTENT = `
                 if (item.error) {
                     tableHTML += \`
                         <tr>
-                            <td><span class="key-cell" title="\${item.key}">\${item.key}</span></td>
-                            <td colspan="5" class="error-row">⚠️ \${item.error}</td>
+                            <td><span class="key-badge" title="\${item.key}">\${item.key}</span></td>
+                            <td colspan="5" style="color: var(--danger); font-weight: 500;">⚠️ \${item.error}</td>
                             <td style="text-align: center;">
-                                <button class="btn btn-primary btn-sm" onclick="refreshSingleKey('\${item.id}')">🔄</button>
-                                <button class="btn btn-danger btn-sm" onclick="deleteKeyFromTable('\${item.id}')" style="margin-left: 6px;">🗑️</button>
+                                <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="refreshSingleKey('\${item.id}')">↻</button>
+                                <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px; margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')">🗑️</button>
                             </td>
                         </tr>\`;
                 } else {
                     const remaining = Math.max(0, item.totalAllowance - item.orgTotalTokensUsed);
                     const ratio = item.usedRatio || 0;
                     const progressClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
+                    const statusDot = remaining > 0 ? 'active' : 'danger';
+                    
                     tableHTML += \`
                         <tr id="key-row-\${item.id}">
-                            <td><span class="key-cell" title="\${item.key}">\${item.key}</span></td>
-                            <td>\${item.startDate}</td>
-                            <td>\${item.endDate}</td>
-                            <td class="number">\${formatNumber(item.totalAllowance)}</td>
-                            <td class="number">\${formatNumber(item.orgTotalTokensUsed)}</td>
-                            <td class="number" style="color: \${remaining > 0 ? '#10b981' : '#ef4444'}; font-weight: 700;">\${formatNumber(remaining)}</td>
-                            <td class="number">
-                                <div>\${formatPercentage(ratio)}</div>
-                                <div class="progress-bar" style="width: 80px;"><div class="progress-fill \${progressClass}" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>
+                            <td>
+                                <div style="display: flex; align-items: center;">
+                                    <span class="status-dot \${statusDot}"></span>
+                                    <span class="key-badge" title="\${item.key}">\${item.key}</span>
+                                </div>
+                            </td>
+                            <td style="font-size: 13px; color: var(--text-secondary);">\${item.startDate} <br> \${item.endDate}</td>
+                            <td style="text-align: right; font-family: 'SF Mono', monospace;">\${formatNumber(item.totalAllowance)}</td>
+                            <td style="text-align: right; font-family: 'SF Mono', monospace;">\${formatNumber(item.orgTotalTokensUsed)}</td>
+                            <td style="text-align: right; font-family: 'SF Mono', monospace; color: \${remaining > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: 700;">\${formatNumber(remaining)}</td>
+                            <td>
+                                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                    <span>\${formatPercentage(ratio)}</span>
+                                </div>
+                                <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>
                             </td>
                             <td style="text-align: center; white-space: nowrap;">
-                                <button class="btn btn-primary btn-sm" onclick="refreshSingleKey('\${item.id}')" title="刷新">🔄</button>
-                                <button class="btn btn-danger btn-sm" onclick="deleteKeyFromTable('\${item.id}')" style="margin-left: 6px;" title="删除">🗑️</button>
+                                <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="refreshSingleKey('\${item.id}')" title="刷新">↻</button>
+                                <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px; margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')" title="删除">🗑️</button>
                             </td>
                         </tr>\`;
                 }
             });
 
-            tableHTML += \`
-                    </tbody>
-                </table>\`; 
-  
-  
+            tableHTML += \`</tbody></table>\`; 
             document.getElementById('tableContent').innerHTML = tableHTML;  
         }  
-  
   
         document.addEventListener('DOMContentLoaded', loadData);
 
@@ -714,7 +819,7 @@ const HTML_CONTENT = `
 
         function showMessage(message, isError = false) {
             const msgDiv = document.getElementById('modalMessage');
-            msgDiv.innerHTML = \`<div class="\${isError ? 'error-msg' : 'success-msg'}">\${message}</div>\`;
+            msgDiv.innerHTML = \`<div style="padding: 12px; border-radius: 8px; margin-bottom: 16px; background: \${isError ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)'}; color: \${isError ? '#f87171' : '#34d399'}; border: 1px solid \${isError ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'};">\${message}</div>\`;
             setTimeout(() => clearMessage(), 5000);
         }
 
@@ -766,13 +871,10 @@ const HTML_CONTENT = `
 
         async function deleteAllKeys() {
             if (!currentApiData) return alert('⚠️ 请先加载数据');
-
             const totalKeys = currentApiData.total_count;
             if (totalKeys === 0) return alert('📭 没有可删除的 Key');
 
-            const confirmMsg = \`🚨 危险操作！\\n\\n确定要删除所有 \${totalKeys} 个 Key 吗？\\n此操作不可恢复！\`;
-            if (!confirm(confirmMsg)) return;
-
+            if (!confirm(\`🚨 危险操作！\\n\\n确定要删除所有 \${totalKeys} 个 Key 吗？\\n此操作不可恢复！\`)) return;
             const secondConfirm = prompt('⚠️ 请输入 "确认删除" 以继续：');
             if (secondConfirm !== '确认删除') return alert('✅ 操作已取消');
 
@@ -790,7 +892,6 @@ const HTML_CONTENT = `
                 });
 
                 const result = await response.json();
-
                 if (response.ok) {
                     alert(\`✅ 成功删除 \${result.deleted || totalKeys} 个 Key\`);
                     loadData();
@@ -807,7 +908,6 @@ const HTML_CONTENT = `
 
         async function deleteZeroBalanceKeys() {
             if (!currentApiData) return alert('⚠️ 请先加载数据');
-
             const zeroBalanceKeys = currentApiData.data.filter(item => {
                 if (item.error) return false;
                 const remaining = Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
@@ -815,10 +915,7 @@ const HTML_CONTENT = `
             });
 
             if (zeroBalanceKeys.length === 0) return alert('🎉 太棒了！没有找到余额为 0 的 Key');
-
-            const confirmMsg = \`🧹 清理确认\\n\\n发现 \${zeroBalanceKeys.length} 个余额为 0 的 Key\\n确定要删除吗？\`;
-
-            if (!confirm(confirmMsg)) return;
+            if (!confirm(\`🧹 清理确认\\n\\n发现 \${zeroBalanceKeys.length} 个余额为 0 的 Key\\n确定要删除吗？\`)) return;
 
             const deleteBtn = document.getElementById('deleteZeroBtn');
             deleteBtn.disabled = true;
@@ -831,9 +928,7 @@ const HTML_CONTENT = `
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ ids: zeroBalanceKeys.map(k => k.id) })
                 });
-
                 const result = await response.json();
-
                 if (response.ok) {
                     alert(\`✅ 成功清理 \${result.deleted || zeroBalanceKeys.length} 个无效 Key\`);
                     loadData();
@@ -851,7 +946,6 @@ const HTML_CONTENT = `
         async function batchImportKeys(event) {
             event.preventDefault();
             const input = document.getElementById('batchKeysInput').value.trim();
-
             if (!input) return showMessage('请输入要导入的 Keys', true);
 
             const lines = input.split('\\n').map(line => line.trim()).filter(line => line.length > 0);
@@ -880,12 +974,9 @@ const HTML_CONTENT = `
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(keysToImport)
                 });
-
                 const result = await response.json();
-
                 if (response.ok) {
-                    const msg = \`🎉 成功导入 \${result.added} 个 Key\${result.skipped > 0 ? \`，跳过 \${result.skipped} 个重复\` : ''}\`;
-                    showMessage(msg);
+                    showMessage(\`🎉 成功导入 \${result.added} 个 Key\${result.skipped > 0 ? \`，跳过 \${result.skipped} 个重复\` : ''}\`);
                     document.getElementById('batchKeysInput').value = '';
                     closeManageModal();
                     loadData();
@@ -899,16 +990,11 @@ const HTML_CONTENT = `
 
         async function deleteKeyFromTable(id) {
             if (!confirm(\`🗑️ 确定要删除这个 Key 吗？\`)) return;
-
             try {
                 const response = await fetch(\`/api/keys/\${id}\`, { method: 'DELETE' });
                 const result = await response.json();
-
-                if (response.ok) {
-                    loadData();
-                } else {
-                    alert('❌ 删除失败: ' + (result.error || '未知错误'));
-                }
+                if (response.ok) loadData();
+                else alert('❌ 删除失败: ' + (result.error || '未知错误'));
             } catch (error) {
                 alert('❌ 网络错误: ' + error.message);
             }
@@ -923,30 +1009,38 @@ const HTML_CONTENT = `
             cells.forEach((cell, index) => {
                 originalContent[index] = cell.innerHTML;
                 if (index > 0 && index < cells.length - 1) {
-                    cell.innerHTML = '<span style="color: #6c757d;">⏳ 刷新中...</span>';
+                    cell.innerHTML = '<span style="color: var(--text-secondary);">⏳ 刷新中...</span>';
                 }
             });
 
             try {
-                const response = await fetch(\`/api/keys/\${id}/refresh\`, {
-                    method: 'POST'
-                });
-
+                const response = await fetch(\`/api/keys/\${id}/refresh\`, { method: 'POST' });
                 const result = await response.json();
 
                 if (response.ok && result.data) {
                     const item = result.data;
-                    
                     if (item.error) {
-                        cells[1].innerHTML = '<span class="error-row">加载失败: ' + item.error + '</span>';
+                        cells[1].innerHTML = '<span style="color: var(--danger);">加载失败: ' + item.error + '</span>';
                         cells[2].colSpan = 5;
                         for (let i = 3; i < cells.length - 1; i++) cells[i].style.display = 'none';
                     } else {
                         const remaining = Math.max(0, item.totalAllowance - item.orgTotalTokensUsed);
-                        [cells[1].innerHTML, cells[2].innerHTML, cells[3].innerHTML, 
-                         cells[4].innerHTML, cells[5].innerHTML, cells[6].innerHTML] = 
-                        [item.startDate, item.endDate, formatNumber(item.totalAllowance),
-                         formatNumber(item.orgTotalTokensUsed), formatNumber(remaining), formatPercentage(item.usedRatio)];
+                        const ratio = item.usedRatio || 0;
+                        const progressClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
+                        const statusDot = remaining > 0 ? 'active' : 'danger';
+                        
+                        // Update cells
+                        cells[0].innerHTML = \`<div style="display: flex; align-items: center;"><span class="status-dot \${statusDot}"></span><span class="key-badge" title="\${item.key}">\${item.key}</span></div>\`;
+                        cells[1].innerHTML = \`\${item.startDate} <br> \${item.endDate}\`;
+                        cells[2].innerHTML = formatNumber(item.totalAllowance);
+                        cells[3].innerHTML = formatNumber(item.orgTotalTokensUsed);
+                        cells[4].innerHTML = formatNumber(remaining);
+                        cells[4].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
+                        cells[5].innerHTML = \`
+                            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                <span>\${formatPercentage(ratio)}</span>
+                            </div>
+                            <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>\`;
                         
                         for (let i = 1; i < cells.length - 1; i++) {
                             cells[i].style.display = '';
@@ -971,7 +1065,7 @@ const HTML_CONTENT = `
     </script>
 </body>
 </html>
-`;  
+`;
   
   
 // ==================== API Data Fetching ====================
