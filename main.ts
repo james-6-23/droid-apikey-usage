@@ -1224,7 +1224,7 @@ const HTML_CONTENT = `
                             <td>
                                 <div class="key-cell">
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
-                                    <button class="copy-btn" onclick="copyKey(\${copyValue}, this)" title="复制">
+                                    <button class="copy-btn" onclick='copyKey(\${copyValue}, this)' title="复制">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                                     </button>
                                 </div>
@@ -1248,7 +1248,7 @@ const HTML_CONTENT = `
                                 <div class="key-cell">
                                     <span class="status-dot \${statusDot}"></span>
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
-                                    <button class="copy-btn" onclick="copyKey(\${copyValue}, this)" title="复制">
+                                    <button class="copy-btn" onclick='copyKey(\${copyValue}, this)' title="复制">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                                     </button>
                                 </div>
@@ -1305,27 +1305,24 @@ const HTML_CONTENT = `
             });
         }
 
-        // Copy Selected Keys - 复制选中的 Keys (需要密码获取完整 key)
+        // Copy Selected Keys - 复制选中的 Keys
         async function copySelectedKeys() {
             if (selectedKeys.size === 0) {
                 showToast('未选择', '请先选择要复制的 Key', 'info');
                 return;
             }
             
-            const password = prompt('请输入导出密码以获取完整 Key：');
-            if (!password) return;
-            
             try {
                 // 通过导出 API 获取完整的 key
                 const response = await fetch('/api/keys/export', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password })
+                    body: JSON.stringify({})
                 });
                 
                 if (!response.ok) {
                     const result = await response.json();
-                    showToast('获取失败', result.error || '密码错误', 'error');
+                    showToast('获取失败', result.error || '获取失败', 'error');
                     return;
                 }
                 
@@ -1562,9 +1559,6 @@ const HTML_CONTENT = `
         }
 
         async function exportKeys() {
-            const password = prompt('请输入导出密码：');
-            if (!password) return;
-
             const exportBtn = document.getElementById('exportKeysBtn');
             exportBtn.disabled = true;
             const originalHTML = exportBtn.innerHTML;
@@ -1574,7 +1568,7 @@ const HTML_CONTENT = `
                 const response = await fetch('/api/keys/export', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password })
+                    body: JSON.stringify({})
                 });
 
                 const result = await response.json();
@@ -2077,17 +2071,10 @@ async function handleBatchDeleteKeys(req: Request): Promise<Response> {
 }
 
 /**
- * Handles POST /api/keys/export - exports all API keys with password verification.
+ * Handles POST /api/keys/export - exports all API keys.
  */
-async function handleExportKeys(req: Request): Promise<Response> {
+async function handleExportKeys(_req: Request): Promise<Response> {
   try {
-    const { password } = await req.json() as { password: string };
-
-    // Verify password
-    if (password !== CONFIG.EXPORT_PASSWORD) {
-      return createErrorResponse("密码错误", 401);
-    }
-
     // Get all keys (unmasked)
     const keys = await getAllKeys();
 
@@ -2096,9 +2083,9 @@ async function handleExportKeys(req: Request): Promise<Response> {
       keys
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Invalid JSON';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error exporting keys:', errorMessage);
-    return createErrorResponse(errorMessage, 400);
+    return createErrorResponse(errorMessage, 500);
   }
 }
 
