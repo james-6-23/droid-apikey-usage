@@ -972,13 +972,11 @@ const HTML_CONTENT = `
         // Refresh Single Key (独立刷新，不触发全局刷新)
         async function refreshSingleKey(keyId, btn) {
             const row = document.getElementById('key-row-' + keyId);
-            if (!row) return;
+            if (!row || btn.disabled) return;
 
-            // 显示加载状态
-            row.classList.add('row-refreshing');
-            const originalBtnText = btn.innerHTML;
-            btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span>';
+            // 只让按钮旋转
             btn.disabled = true;
+            btn.style.animation = 'spin 0.8s linear infinite';
 
             try {
                 const response = await fetch('/api/keys/' + keyId + '/refresh', {
@@ -992,22 +990,51 @@ const HTML_CONTENT = `
                 const result = await response.json();
                 
                 if (result.success && result.data) {
+                    const data = result.data;
+                    
                     // 更新本地缓存数据
                     if (currentApiData && currentApiData.data) {
                         const index = currentApiData.data.findIndex(item => item.id === keyId);
                         if (index !== -1) {
-                            currentApiData.data[index] = result.data;
+                            currentApiData.data[index] = data;
                         }
                     }
-                    // 重新渲染表格
-                    displayData(currentApiData);
+                    
+                    // 直接更新该行的数字（不重新渲染整个表格）
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length >= 7 && !data.error) {
+                        const remaining = Math.max(0, data.totalAllowance - data.orgTotalTokensUsed);
+                        const ratio = data.usedRatio || 0;
+                        const progressClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
+                        
+                        // 更新有效期
+                        cells[2].innerHTML = data.startDate + ' ~ ' + data.endDate;
+                        // 更新总额度
+                        cells[3].innerHTML = formatNumber(data.totalAllowance);
+                        // 更新已使用
+                        cells[4].innerHTML = formatNumber(data.orgTotalTokensUsed);
+                        // 更新剩余
+                        cells[5].innerHTML = formatNumber(remaining);
+                        cells[5].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
+                        // 更新使用率和进度条
+                        cells[6].innerHTML = \`
+                            <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px;">
+                                <span>\${formatPercentage(ratio)}</span>
+                            </div>
+                            <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>
+                        \`;
+                        
+                        // 更新状态点
+                        const statusDot = row.querySelector('.status-dot');
+                        if (statusDot) {
+                            statusDot.className = 'status-dot ' + (remaining > 0 ? 'active' : 'danger');
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('刷新 Key 失败:', error);
-                alert('刷新失败: ' + error.message);
             } finally {
-                row.classList.remove('row-refreshing');
-                btn.innerHTML = originalBtnText;
+                btn.style.animation = '';
                 btn.disabled = false;
             }
         }
