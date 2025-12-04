@@ -69,6 +69,7 @@ const CONFIG = {
   KEY_MASK_SUFFIX_LENGTH: 4,
   AUTO_REFRESH_INTERVAL_SECONDS: 60, // Set auto-refresh interval to 60 seconds
   EXPORT_PASSWORD: Deno.env.get("EXPORT_PASSWORD") || "admin123", // Default password for key export
+  ACCESS_PASSWORD: Deno.env.get("PASSWORD") || "", // Access password for dashboard (empty = no password required)
 } as const;
 
 // ==================== Server State and Caching (NEW) ====================
@@ -690,6 +691,9 @@ const HTML_CONTENT = `
                 </div>
             </div>
             <div class="header-actions">
+                <button class="btn" onclick="openSettingsModal()" style="background: var(--bg-tertiary);">
+                    ⚙️ 设置
+                </button>
                 <button class="btn btn-primary" onclick="openManageModal()">
                     <span>+</span> 导入 Key
                 </button>
@@ -757,7 +761,54 @@ const HTML_CONTENT = `
                 </form>
             </div>
         </div>
-    </div>  
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content" style="max-width: 450px;">
+            <div class="modal-header">
+                <h2>⚙️ 设置</h2>
+                <button class="close-btn" onclick="closeSettingsModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>自动刷新间隔（秒）</label>
+                    <input type="number" id="refreshIntervalInput" min="10" max="3600" value="60" style="width: 100%; padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                    <small style="color: var(--text-secondary); margin-top: 6px; display: block;">设置数据自动刷新的时间间隔（10-3600秒）</small>
+                </div>
+                <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: var(--text-secondary);">密码保护状态</span>
+                        <span id="passwordStatus" style="color: var(--success);">未启用</span>
+                    </div>
+                    <small style="color: var(--text-secondary); margin-top: 8px; display: block;">在 Deno Deploy 中设置环境变量 <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">PASSWORD</code> 来启用密码保护</small>
+                </div>
+                <div style="margin-top: 24px;">
+                    <button class="btn btn-primary" onclick="saveSettings()" style="width: 100%; justify-content: center;">保存设置</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password Modal -->
+    <div id="passwordModal" class="modal" style="z-index: 10000;">
+        <div class="modal-content" style="max-width: 380px;">
+            <div class="modal-header">
+                <h2>🔐 访问验证</h2>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">此面板需要密码才能访问</p>
+                <div class="form-group">
+                    <label>请输入访问密码</label>
+                    <input type="password" id="accessPasswordInput" placeholder="输入密码" style="width: 100%; padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);" onkeypress="if(event.key==='Enter')verifyAccessPassword()">
+                </div>
+                <div id="passwordError" style="color: var(--danger); margin-top: 10px; display: none;">密码错误，请重试</div>
+                <div style="margin-top: 20px;">
+                    <button class="btn btn-primary" onclick="verifyAccessPassword()" style="width: 100%; justify-content: center;">验证</button>
+                </div>
+            </div>
+        </div>
+    </div>
   
     <script>
         // Global variable to store current API data
@@ -783,6 +834,118 @@ const HTML_CONTENT = `
                 document.body.classList.add('light-theme');
                 themeIcon.textContent = '🌙';
             }
+        }
+
+        // Cookie 工具函数
+        function setCookie(name, value, days) {
+            const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
+            document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/';
+        }
+        
+        function getCookie(name) {
+            const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+            return match ? decodeURIComponent(match[2]) : null;
+        }
+
+        // 密码验证相关
+        let isAuthenticated = false;
+
+        async function checkPasswordRequired() {
+            try {
+                const response = await fetch('/api/auth/check');
+                const data = await response.json();
+                
+                // 更新设置页面的密码状态
+                const statusEl = document.getElementById('passwordStatus');
+                if (statusEl) {
+                    if (data.required) {
+                        statusEl.textContent = '已启用';
+                        statusEl.style.color = 'var(--accent)';
+                    } else {
+                        statusEl.textContent = '未启用';
+                        statusEl.style.color = 'var(--text-secondary)';
+                    }
+                }
+                
+                if (data.required) {
+                    // 检查 cookie 是否有有效的密码
+                    const savedAuth = getCookie('auth_token');
+                    if (savedAuth === 'verified') {
+                        isAuthenticated = true;
+                        return;
+                    }
+                    // 显示密码弹窗
+                    document.getElementById('passwordModal').classList.add('show');
+                } else {
+                    isAuthenticated = true;
+                }
+            } catch (error) {
+                console.error('检查密码失败:', error);
+                isAuthenticated = true; // 出错时允许访问
+            }
+        }
+
+        async function verifyAccessPassword() {
+            const password = document.getElementById('accessPasswordInput').value;
+            const errorEl = document.getElementById('passwordError');
+            
+            try {
+                const response = await fetch('/api/auth/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                if (response.ok) {
+                    // 保存到 cookie，7 天过期
+                    setCookie('auth_token', 'verified', 7);
+                    isAuthenticated = true;
+                    document.getElementById('passwordModal').classList.remove('show');
+                    errorEl.style.display = 'none';
+                } else {
+                    errorEl.style.display = 'block';
+                    document.getElementById('accessPasswordInput').value = '';
+                }
+            } catch (error) {
+                errorEl.textContent = '网络错误，请重试';
+                errorEl.style.display = 'block';
+            }
+        }
+
+        // 设置相关
+        let autoRefreshInterval = null;
+        let refreshIntervalSeconds = 60;
+
+        function openSettingsModal() {
+            const savedInterval = localStorage.getItem('refreshInterval') || 60;
+            document.getElementById('refreshIntervalInput').value = savedInterval;
+            document.getElementById('settingsModal').classList.add('show');
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settingsModal').classList.remove('show');
+        }
+
+        function saveSettings() {
+            const interval = parseInt(document.getElementById('refreshIntervalInput').value) || 60;
+            const clampedInterval = Math.min(3600, Math.max(10, interval));
+            
+            localStorage.setItem('refreshInterval', clampedInterval);
+            refreshIntervalSeconds = clampedInterval;
+            
+            // 重新设置自动刷新
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            autoRefreshInterval = setInterval(loadData, refreshIntervalSeconds * 1000);
+            
+            closeSettingsModal();
+            alert('设置已保存！自动刷新间隔: ' + clampedInterval + ' 秒');
+        }
+
+        function initAutoRefresh() {
+            refreshIntervalSeconds = parseInt(localStorage.getItem('refreshInterval')) || 60;
+            autoRefreshInterval = setInterval(loadData, refreshIntervalSeconds * 1000);
         }
   
         function loadData(retryCount = 0, isInitial = false) {
@@ -962,9 +1125,11 @@ const HTML_CONTENT = `
             document.getElementById('tableContent').classList.add('fade-in');
         }  
   
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             initTheme();
+            await checkPasswordRequired();  // 先检查密码
             loadData(0, true);  // 初次加载
+            initAutoRefresh();  // 初始化自动刷新
         });
 
         // Copy Key Function
@@ -981,15 +1146,15 @@ const HTML_CONTENT = `
             });
         }
 
-        // Refresh Single Key - 只让按钮旋转，不修改任何单元格内容
+        // Refresh Single Key - 只让图标旋转，按钮边框不动
         async function refreshSingleKey(keyId, btn) {
             const row = document.getElementById('key-row-' + keyId);
             if (!row || btn.disabled) return;
 
-            // 只让刷新按钮旋转，不做任何其他改变
+            // 保存原始内容，替换为旋转的图标
             btn.disabled = true;
-            btn.style.transformOrigin = 'center';
-            btn.style.animation = 'spin 0.6s linear infinite';
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span style="display:inline-block;animation:spin 0.6s linear infinite">↻</span>';
 
             try {
                 const response = await fetch('/api/keys/' + keyId + '/refresh', {
@@ -1071,7 +1236,7 @@ const HTML_CONTENT = `
             } catch (err) {
                 console.error('刷新失败:', err);
             } finally {
-                btn.style.animation = '';
+                btn.innerHTML = originalText;
                 btn.disabled = false;
             }
         }
@@ -1711,6 +1876,36 @@ async function handleExportKeys(req: Request): Promise<Response> {
 }
 
 /**
+ * Handles GET /api/auth/check - checks if password is required
+ */
+function handleAuthCheck(): Response {
+  return createJsonResponse({
+    required: CONFIG.ACCESS_PASSWORD !== "",
+  });
+}
+
+/**
+ * Handles POST /api/auth/verify - verifies access password
+ */
+async function handleAuthVerify(req: Request): Promise<Response> {
+  try {
+    const { password } = await req.json() as { password: string };
+
+    if (CONFIG.ACCESS_PASSWORD === "") {
+      return createJsonResponse({ success: true });
+    }
+
+    if (password === CONFIG.ACCESS_PASSWORD) {
+      return createJsonResponse({ success: true });
+    }
+
+    return createErrorResponse("密码错误", 401);
+  } catch (error) {
+    return createErrorResponse("Invalid request", 400);
+  }
+}
+
+/**
  * Handles POST /api/keys/:id/refresh - refreshes data for a single API key.
  */
 async function handleRefreshSingleKey(pathname: string): Promise<Response> {
@@ -1780,6 +1975,16 @@ async function handler(req: Request): Promise<Response> {
   // Route: POST /api/keys/export - Export keys with password
   if (url.pathname === "/api/keys/export" && req.method === "POST") {
     return await handleExportKeys(req);
+  }
+
+  // Route: GET /api/auth/check - Check if password is required
+  if (url.pathname === "/api/auth/check" && req.method === "GET") {
+    return handleAuthCheck();
+  }
+
+  // Route: POST /api/auth/verify - Verify access password
+  if (url.pathname === "/api/auth/verify" && req.method === "POST") {
+    return await handleAuthVerify(req);
   }
 
   // Route: DELETE /api/keys/:id - Delete a key
