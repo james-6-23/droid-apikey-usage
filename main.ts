@@ -12,6 +12,7 @@ interface ApiKey {
 interface ApiUsageData {
   id: string;
   key: string;
+  fullKey: string;
   startDate: string;
   endDate: string;
   orgTotalTokensUsed: number;
@@ -22,6 +23,7 @@ interface ApiUsageData {
 interface ApiErrorData {
   id: string;
   key: string;
+  fullKey: string;
   error: string;
 }
 
@@ -1213,6 +1215,8 @@ const HTML_CONTENT = `
             });
 
             sortedData.forEach(item => {
+                const rawKey = item.fullKey || item.key || '';
+                const copyValue = rawKey.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 if (item.error) {
                     tableHTML += \`
                         <tr id="key-row-\${item.id}" data-key-id="\${item.id}">
@@ -1220,7 +1224,7 @@ const HTML_CONTENT = `
                             <td>
                                 <div class="key-cell">
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
-                                    <button class="copy-btn" onclick="copyKey('\${item.key}', this)" title="复制">
+                                    <button class="copy-btn" onclick="copyKey('\${copyValue}', this)" title="复制">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                                     </button>
                                 </div>
@@ -1244,7 +1248,7 @@ const HTML_CONTENT = `
                                 <div class="key-cell">
                                     <span class="status-dot \${statusDot}"></span>
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
-                                    <button class="copy-btn" onclick="copyKey('\${item.key}', this)" title="复制">
+                                    <button class="copy-btn" onclick="copyKey('\${copyValue}', this)" title="复制">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                                     </button>
                                 </div>
@@ -1809,20 +1813,21 @@ async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise
         await new Promise(resolve => setTimeout(resolve, delayMs));
         return fetchApiKeyData(id, key, retryCount + 1);
       }
-      return { id, key: maskedKey, error: `HTTP ${response.status}` };
+      return { id, key: maskedKey, fullKey: key, error: `HTTP ${response.status}` };
     }
 
     const apiData: ApiResponse = await response.json();
     const { usage } = apiData;
 
     if (!usage?.standard) {
-      return { id, key: maskedKey, error: 'Invalid API response' };
+      return { id, key: maskedKey, fullKey: key, error: 'Invalid API response' };
     }
 
     const { standard } = usage;
     return {
       id,
       key: maskedKey,
+      fullKey: key,
       startDate: formatDate(usage.startDate),
       endDate: formatDate(usage.endDate),
       orgTotalTokensUsed: standard.orgTotalTokensUsed || 0,
@@ -1830,7 +1835,7 @@ async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise
       usedRatio: standard.usedRatio || 0,
     };
   } catch (error) {
-    return { id, key: maskedKey, error: 'Failed to fetch' };
+    return { id, key: maskedKey, fullKey: key, error: 'Failed to fetch' };
   }
 }
 
