@@ -1301,35 +1301,52 @@ const HTML_CONTENT = `
             });
         }
 
-        // Copy Selected Keys - 复制选中的 Keys
-        function copySelectedKeys() {
+        // Copy Selected Keys - 复制选中的 Keys (需要密码获取完整 key)
+        async function copySelectedKeys() {
             if (selectedKeys.size === 0) {
                 showToast('未选择', '请先选择要复制的 Key', 'info');
                 return;
             }
             
-            // 从 currentApiData 中获取选中的 Key 值
-            const keysToMove = [];
-            if (currentApiData && currentApiData.data) {
-                currentApiData.data.forEach(item => {
-                    if (selectedKeys.has(item.id)) {
-                        keysToMove.push(item.key);
-                    }
+            const password = prompt('请输入导出密码以获取完整 Key：');
+            if (!password) return;
+            
+            try {
+                // 通过导出 API 获取完整的 key
+                const response = await fetch('/api/keys/export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
                 });
-            }
-            
-            if (keysToMove.length === 0) {
-                showToast('复制失败', '未找到对应的 Key 数据', 'error');
-                return;
-            }
-            
-            const text = keysToMove.join('\\n');
-            navigator.clipboard.writeText(text).then(() => {
-                showToast('复制成功', '已复制 ' + keysToMove.length + ' 个 Key 到剪贴板', 'success');
+                
+                if (!response.ok) {
+                    const result = await response.json();
+                    showToast('获取失败', result.error || '密码错误', 'error');
+                    return;
+                }
+                
+                const result = await response.json();
+                if (!result.success || !result.keys) {
+                    showToast('获取失败', '无法获取完整 Key', 'error');
+                    return;
+                }
+                
+                // 筛选选中的 key
+                const selectedIdArray = Array.from(selectedKeys);
+                const keysToExport = result.keys.filter(k => selectedIdArray.includes(k.id));
+                
+                if (keysToExport.length === 0) {
+                    showToast('复制失败', '未找到对应的 Key 数据', 'error');
+                    return;
+                }
+                
+                const text = keysToExport.map(k => k.key).join('\\n');
+                await navigator.clipboard.writeText(text);
+                showToast('复制成功', '已复制 ' + keysToExport.length + ' 个完整 Key 到剪贴板', 'success');
                 clearSelection();
-            }).catch(err => {
+            } catch (err) {
                 showToast('复制失败', err.message, 'error');
-            });
+            }
         }
 
         // Refresh Single Key - 只让图标旋转，按钮边框不动
