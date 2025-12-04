@@ -981,12 +981,12 @@ const HTML_CONTENT = `
             });
         }
 
-        // Refresh Single Key (独立刷新，只让按钮旋转)
+        // Refresh Single Key - 只让按钮旋转，不修改任何单元格内容
         async function refreshSingleKey(keyId, btn) {
             const row = document.getElementById('key-row-' + keyId);
             if (!row || btn.disabled) return;
 
-            // 只让刷新按钮旋转
+            // 只让刷新按钮旋转，不做任何其他改变
             btn.disabled = true;
             btn.style.transformOrigin = 'center';
             btn.style.animation = 'spin 0.6s linear infinite';
@@ -1000,70 +1000,76 @@ const HTML_CONTENT = `
 
                 const result = await response.json();
                 
-                if (result.success && result.data) {
-                    const data = result.data;
+                if (result.success && result.data && !result.data.error) {
+                    const d = result.data;
                     
                     // 更新本地缓存
                     if (currentApiData && currentApiData.data) {
-                        const index = currentApiData.data.findIndex(item => item.id === keyId);
-                        if (index !== -1) currentApiData.data[index] = data;
+                        const idx = currentApiData.data.findIndex(item => item.id === keyId);
+                        if (idx !== -1) currentApiData.data[idx] = d;
                     }
                     
-                    // 只更新该行的数字（带平滑动画）
-                    if (!data.error) {
-                        const cells = row.querySelectorAll('td');
-                        const remaining = Math.max(0, data.totalAllowance - data.orgTotalTokensUsed);
-                        const ratio = data.usedRatio || 0;
-                        const progressClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
+                    // 获取所有单元格
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length >= 8) {
+                        const remaining = Math.max(0, d.totalAllowance - d.orgTotalTokensUsed);
+                        const ratio = d.usedRatio || 0;
+                        const pClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
                         
-                        // 平滑更新函数
-                        const smoothUpdate = (cell, newValue) => {
-                            cell.style.transition = 'opacity 0.15s ease';
-                            cell.style.opacity = '0.5';
-                            setTimeout(() => {
-                                if (typeof newValue === 'string') {
-                                    cell.textContent = newValue;
-                                } else {
-                                    cell.innerHTML = newValue;
-                                }
-                                cell.style.opacity = '1';
-                            }, 150);
-                        };
+                        // 直接更新数字，带淡入淡出效果
+                        // cells[0]=checkbox, cells[1]=API Key (不更新这两个)
                         
-                        // cells[0] = checkbox, cells[1] = API Key, 不更新
-                        smoothUpdate(cells[2], data.startDate + ' ~ ' + data.endDate);
-                        smoothUpdate(cells[3], formatNumber(data.totalAllowance));
-                        smoothUpdate(cells[4], formatNumber(data.orgTotalTokensUsed));
-                        
+                        // 有效期
+                        cells[2].style.transition = 'opacity 0.2s';
+                        cells[2].style.opacity = '0.4';
                         setTimeout(() => {
-                            cells[5].style.transition = 'opacity 0.15s ease, color 0.3s ease';
-                            cells[5].style.opacity = '0.5';
-                            setTimeout(() => {
-                                cells[5].textContent = formatNumber(remaining);
-                                cells[5].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
-                                cells[5].style.opacity = '1';
-                            }, 150);
-                        }, 0);
+                            cells[2].textContent = d.startDate + ' ~ ' + d.endDate;
+                            cells[2].style.opacity = '1';
+                        }, 200);
                         
+                        // 总额度
+                        cells[3].style.transition = 'opacity 0.2s';
+                        cells[3].style.opacity = '0.4';
                         setTimeout(() => {
-                            cells[6].style.transition = 'opacity 0.15s ease';
-                            cells[6].style.opacity = '0.5';
-                            setTimeout(() => {
-                                cells[6].innerHTML = '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;"><span>' + formatPercentage(ratio) + '</span></div><div class="progress-track"><div class="progress-fill ' + progressClass + '" style="width:' + Math.min(ratio * 100, 100) + '%;transition:width 0.3s ease"></div></div>';
-                                cells[6].style.opacity = '1';
-                            }, 150);
-                        }, 0);
+                            cells[3].textContent = formatNumber(d.totalAllowance);
+                            cells[3].style.opacity = '1';
+                        }, 200);
                         
-                        // 状态点平滑更新
-                        const statusDot = row.querySelector('.status-dot');
-                        if (statusDot) {
-                            statusDot.style.transition = 'background 0.3s ease';
-                            statusDot.className = 'status-dot ' + (remaining > 0 ? 'active' : 'danger');
+                        // 已使用
+                        cells[4].style.transition = 'opacity 0.2s';
+                        cells[4].style.opacity = '0.4';
+                        setTimeout(() => {
+                            cells[4].textContent = formatNumber(d.orgTotalTokensUsed);
+                            cells[4].style.opacity = '1';
+                        }, 200);
+                        
+                        // 剩余
+                        cells[5].style.transition = 'opacity 0.2s, color 0.3s';
+                        cells[5].style.opacity = '0.4';
+                        setTimeout(() => {
+                            cells[5].textContent = formatNumber(remaining);
+                            cells[5].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
+                            cells[5].style.opacity = '1';
+                        }, 200);
+                        
+                        // 使用率 + 进度条
+                        cells[6].style.transition = 'opacity 0.2s';
+                        cells[6].style.opacity = '0.4';
+                        setTimeout(() => {
+                            cells[6].innerHTML = '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>' + formatPercentage(ratio) + '</span></div><div class="progress-track"><div class="progress-fill ' + pClass + '" style="width:' + Math.min(ratio*100,100) + '%;transition:width 0.3s"></div></div>';
+                            cells[6].style.opacity = '1';
+                        }, 200);
+                        
+                        // 更新状态点
+                        const dot = row.querySelector('.status-dot');
+                        if (dot) {
+                            dot.style.transition = 'background 0.3s';
+                            dot.className = 'status-dot ' + (remaining > 0 ? 'active' : 'danger');
                         }
                     }
                 }
-            } catch (error) {
-                console.error('刷新失败:', error);
+            } catch (err) {
+                console.error('刷新失败:', err);
             } finally {
                 btn.style.animation = '';
                 btn.disabled = false;
