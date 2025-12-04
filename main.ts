@@ -179,17 +179,17 @@ const HTML_CONTENT = `
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #000000;
-            --bg-secondary: #0a0a0a;
-            --bg-tertiary: #111111;
-            --text: #ffffff;
-            --text-secondary: #888888;
-            --text-muted: #555555;
-            --border: #222222;
-            --accent: #ffffff;
-            --success: #22c55e;
-            --danger: #ef4444;
-            --warning: #eab308;
+            --bg: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #484f58;
+            --border: #30363d;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --danger: #f85149;
+            --warning: #d29922;
             --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
         }
@@ -270,20 +270,20 @@ const HTML_CONTENT = `
         }
 
         .btn-primary { 
-            background: var(--text);
-            color: var(--bg);
-            border-color: var(--text);
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
         }
         .btn-primary:hover { 
-            background: var(--text-secondary);
-            border-color: var(--text-secondary);
+            background: #4a9aef;
+            border-color: #4a9aef;
         }
 
         .btn-success { color: var(--success); border-color: var(--success); }
-        .btn-success:hover { background: rgba(34, 197, 94, 0.1); }
+        .btn-success:hover { background: rgba(63, 185, 80, 0.15); }
 
         .btn-danger { color: var(--danger); border-color: var(--danger); }
-        .btn-danger:hover { background: rgba(239, 68, 68, 0.1); }
+        .btn-danger:hover { background: rgba(248, 81, 73, 0.15); }
 
         .btn-sm {
             padding: 8px 12px;
@@ -396,25 +396,28 @@ const HTML_CONTENT = `
         }
 
         .copy-btn {
-            background: transparent;
+            background: var(--bg-tertiary);
             border: 1px solid var(--border);
-            color: var(--text-secondary);
-            padding: 6px 10px;
+            color: var(--accent);
+            padding: 6px 12px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 13px;
+            font-family: var(--font-sans);
             transition: all 0.2s;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 6px;
+            white-space: nowrap;
         }
         .copy-btn:hover {
-            color: var(--text);
-            border-color: var(--text-muted);
-            background: var(--bg);
+            background: var(--accent);
+            color: var(--bg);
+            border-color: var(--accent);
         }
         .copy-btn.copied {
-            color: var(--success);
+            background: var(--success);
+            color: white;
             border-color: var(--success);
         }
 
@@ -730,7 +733,14 @@ const HTML_CONTENT = `
                     </thead>
                     <tbody>\`;
 
-            data.data.forEach(item => {
+            // 按已使用额度从高到低排序
+            const sortedData = [...data.data].sort((a, b) => {
+                const usedA = a.orgTotalTokensUsed || 0;
+                const usedB = b.orgTotalTokensUsed || 0;
+                return usedB - usedA;
+            });
+
+            sortedData.forEach(item => {
                 if (item.error) {
                     tableHTML += \`
                         <tr>
