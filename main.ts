@@ -689,6 +689,7 @@ const HTML_CONTENT = `
                 <div class="update-time" id="updateTime">
                     <span class="spinner" style="width: 14px; height: 14px; border-width: 1px;"></span> 正在连接...
                 </div>
+                <div class="update-time" id="countdownTime" style="margin-left: 12px; opacity: 0.7;"></div>
             </div>
             <div class="header-actions">
                 <button class="btn" onclick="openSettingsModal()" style="background: var(--bg-tertiary);">
@@ -933,19 +934,75 @@ const HTML_CONTENT = `
             localStorage.setItem('refreshInterval', clampedInterval);
             refreshIntervalSeconds = clampedInterval;
             
-            // 重新设置自动刷新
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-            }
-            autoRefreshInterval = setInterval(loadData, refreshIntervalSeconds * 1000);
+            // 重新设置自动刷新和倒计时
+            resetCountdown();
             
             closeSettingsModal();
             alert('设置已保存！自动刷新间隔: ' + clampedInterval + ' 秒');
         }
 
+        // 倒计时相关变量
+        let countdownSeconds = 60;
+        let countdownTimer = null;
+
+        function updateCountdownDisplay() {
+            const countdownEl = document.getElementById('countdownTime');
+            if (countdownEl && countdownSeconds > 0) {
+                const mins = Math.floor(countdownSeconds / 60);
+                const secs = countdownSeconds % 60;
+                if (mins > 0) {
+                    countdownEl.textContent = '下次刷新: ' + mins + '分' + secs + '秒';
+                } else {
+                    countdownEl.textContent = '下次刷新: ' + secs + '秒';
+                }
+            }
+        }
+
+        function startCountdown() {
+            // 清除现有倒计时
+            if (countdownTimer) {
+                clearInterval(countdownTimer);
+            }
+            
+            countdownSeconds = refreshIntervalSeconds;
+            updateCountdownDisplay();
+            
+            countdownTimer = setInterval(() => {
+                countdownSeconds--;
+                if (countdownSeconds <= 0) {
+                    countdownSeconds = refreshIntervalSeconds;
+                }
+                updateCountdownDisplay();
+            }, 1000);
+        }
+
+        function resetCountdown() {
+            // 清除现有定时器
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            if (countdownTimer) {
+                clearInterval(countdownTimer);
+            }
+            
+            // 重新开始倒计时和自动刷新
+            countdownSeconds = refreshIntervalSeconds;
+            updateCountdownDisplay();
+            
+            autoRefreshInterval = setInterval(loadData, refreshIntervalSeconds * 1000);
+            countdownTimer = setInterval(() => {
+                countdownSeconds--;
+                if (countdownSeconds <= 0) {
+                    countdownSeconds = refreshIntervalSeconds;
+                }
+                updateCountdownDisplay();
+            }, 1000);
+        }
+
         function initAutoRefresh() {
             refreshIntervalSeconds = parseInt(localStorage.getItem('refreshInterval')) || 60;
             autoRefreshInterval = setInterval(loadData, refreshIntervalSeconds * 1000);
+            startCountdown();
         }
   
         function loadData(retryCount = 0, isInitial = false) {
@@ -990,7 +1047,10 @@ const HTML_CONTENT = `
                 .then(data => {
                     if (data === null) return;
                     if (data.error) throw new Error(data.error);  
-                    displayData(data);  
+                    displayData(data);
+                    // 数据加载成功后重置倒计时
+                    countdownSeconds = refreshIntervalSeconds;
+                    updateCountdownDisplay();
                 })  
                 .catch(error => {
                     if (!currentApiData) {
