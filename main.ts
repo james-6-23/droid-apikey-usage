@@ -1362,63 +1362,7 @@ const HTML_CONTENT = `
             }
         }
 
-        async function refreshSingleKey(id) {
-            const row = document.getElementById(\`key-row-\${id}\`);
-            if (!row) return alert('找不到对应的行');
 
-            const cells = row.querySelectorAll('td');
-            const originalContent = [];
-            cells.forEach((cell, index) => {
-                originalContent[index] = cell.innerHTML;
-                if (index > 0 && index < cells.length - 1) {
-                    cell.innerHTML = '<span style="color: var(--text-secondary);">刷新中...</span>';
-                }
-            });
-
-            try {
-                const response = await fetch(\`/api/keys/\${id}/refresh\`, { method: 'POST' });
-                const result = await response.json();
-
-                if (response.ok && result.data) {
-                    const item = result.data;
-                    if (item.error) {
-                        cells[1].innerHTML = '<span style="color: var(--danger);">加载失败: ' + item.error + '</span>';
-                        cells[2].colSpan = 5;
-                        for (let i = 3; i < cells.length - 1; i++) cells[i].style.display = 'none';
-                    } else {
-                        const remaining = Math.max(0, item.totalAllowance - item.orgTotalTokensUsed);
-                        const ratio = item.usedRatio || 0;
-                        const progressClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
-                        const statusDot = remaining > 0 ? 'active' : 'danger';
-                        
-                        // Update cells
-                        cells[0].innerHTML = \`<div style="display: flex; align-items: center;"><span class="status-dot \${statusDot}"></span><span class="key-badge" title="\${item.key}">\${item.key}</span></div>\`;
-                        cells[1].innerHTML = \`\${item.startDate} <br> \${item.endDate}\`;
-                        cells[2].innerHTML = formatNumber(item.totalAllowance);
-                        cells[3].innerHTML = formatNumber(item.orgTotalTokensUsed);
-                        cells[4].innerHTML = formatNumber(remaining);
-                        cells[4].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
-                        cells[5].innerHTML = \`
-                            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
-                                <span>\${formatPercentage(ratio)}</span>
-                            </div>
-                            <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>\`;
-                        
-                        for (let i = 1; i < cells.length - 1; i++) {
-                            cells[i].style.display = '';
-                            cells[i].colSpan = 1;
-                        }
-                    }
-                    loadData();
-                } else {
-                    alert('刷新失败: ' + (result.error || '未知错误'));
-                    cells.forEach((cell, index) => cell.innerHTML = originalContent[index]);
-                }
-            } catch (error) {
-                alert('网络错误: ' + error.message);
-                cells.forEach((cell, index) => cell.innerHTML = originalContent[index]);
-            }
-        }
 
         document.addEventListener('click', (event) => {
             const modal = document.getElementById('manageModal');
