@@ -81,7 +81,7 @@ class ServerState {
   getData = () => this.cachedData;
   getError = () => this.lastError;
   isCurrentlyUpdating = () => this.isUpdating;
-  
+
   updateCache(data: AggregatedResponse) {
     this.cachedData = data;
     this.lastError = null;
@@ -92,7 +92,7 @@ class ServerState {
     this.lastError = errorMessage;
     this.isUpdating = false;
   }
-  
+
   startUpdate() {
     this.isUpdating = true;
   }
@@ -179,63 +179,69 @@ const HTML_CONTENT = `
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary: #8b5cf6;
-            --primary-glow: rgba(139, 92, 246, 0.5);
-            --secondary: #06b6d4;
-            --secondary-glow: rgba(6, 182, 212, 0.5);
-            --success: #10b981;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --bg-dark: #0f172a;
-            --bg-card: rgba(30, 41, 59, 0.7);
-            --bg-card-hover: rgba(51, 65, 85, 0.8);
-            --text-primary: #f1f5f9;
-            --text-secondary: #94a3b8;
-            --border: rgba(148, 163, 184, 0.1);
-            --glass-border: 1px solid rgba(255, 255, 255, 0.05);
-            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
-            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+            --primary: #00f2ff;
+            --primary-dim: rgba(0, 242, 255, 0.1);
+            --primary-glow: rgba(0, 242, 255, 0.4);
+            --secondary: #7000ff;
+            --secondary-glow: rgba(112, 0, 255, 0.4);
+            --success: #00ff9d;
+            --danger: #ff0055;
+            --warning: #ffcc00;
+            
+            --bg-dark: #050507;
+            --bg-panel: rgba(20, 20, 25, 0.6);
+            --bg-panel-hover: rgba(30, 30, 40, 0.8);
+            
+            --text-primary: #ffffff;
+            --text-secondary: #8b9bb4;
+            --text-dim: #4a5568;
+            
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.2);
+            
+            --font-main: 'Outfit', sans-serif;
+            --font-mono: 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body { 
-            font-family: 'Outfit', sans-serif; 
+            font-family: var(--font-main); 
             background-color: var(--bg-dark);
             background-image: 
-                radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
-                radial-gradient(at 0% 100%, rgba(6, 182, 212, 0.15) 0px, transparent 50%);
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                radial-gradient(circle at 50% 0%, rgba(112, 0, 255, 0.15), transparent 60%),
+                radial-gradient(circle at 80% 20%, rgba(0, 242, 255, 0.1), transparent 40%);
+            background-size: 40px 40px, 40px 40px, 100% 100%, 100% 100%;
             background-attachment: fixed;
             color: var(--text-primary);
             min-height: 100vh; 
-            padding: 24px;
+            padding: 32px;
             overflow-x: hidden;
         }
 
         /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
-        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
 
         .container { 
             max-width: 1600px; 
             margin: 0 auto; 
-            animation: fadeIn 0.6s ease-out;
+            animation: fadeIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
 
         /* Header */
         .header { 
-            background: var(--bg-card);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: var(--glass-border);
-            border-radius: 24px; 
+            background: rgba(10, 10, 15, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 16px; 
             padding: 24px 32px; 
-            margin-bottom: 24px;
-            box-shadow: var(--shadow);
+            margin-bottom: 32px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -243,157 +249,180 @@ const HTML_CONTENT = `
             gap: 20px;
             position: relative;
             overflow: hidden;
+            box-shadow: 0 0 40px rgba(0,0,0,0.5);
         }
 
-        .header::before {
+        .header::after {
             content: '';
             position: absolute;
-            top: 0; left: 0; width: 100%; height: 2px;
-            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            bottom: 0; left: 0; width: 100%; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            opacity: 0.5;
         }
 
         .header-left h1 { 
-            font-size: 28px; 
-            font-weight: 700; 
-            background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 4px;
+            font-size: 24px; 
+            font-weight: 600; 
+            letter-spacing: 1px;
+            color: white;
+            margin-bottom: 6px;
             display: flex;
             align-items: center;
             gap: 12px;
+            text-transform: uppercase;
+        }
+        
+        .header-left h1 svg {
+            filter: drop-shadow(0 0 8px var(--primary));
         }
 
         .header-left .update-time { 
-            font-size: 13px; 
+            font-family: var(--font-mono);
+            font-size: 12px; 
             color: var(--text-secondary); 
-            font-weight: 400; 
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
+            opacity: 0.8;
         }
 
         .header-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 
+        /* Tech Buttons */
         .btn { 
-            background: rgba(255, 255, 255, 0.05); 
-            color: var(--text-primary); 
-            border: 1px solid rgba(255, 255, 255, 0.1); 
-            border-radius: 12px; 
-            padding: 10px 20px; 
-            font-size: 14px; 
-            font-weight: 500;
+            background: rgba(255, 255, 255, 0.03); 
+            color: var(--text-secondary); 
+            border: 1px solid var(--border); 
+            border-radius: 4px; 
+            padding: 8px 20px; 
+            font-size: 12px; 
+            font-weight: 600;
+            font-family: var(--font-main);
+            text-transform: uppercase;
+            letter-spacing: 1px;
             cursor: pointer; 
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s ease;
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            font-family: inherit;
+            position: relative;
+            overflow: hidden;
         }
 
         .btn:hover { 
-            background: rgba(255, 255, 255, 0.1); 
-            transform: translateY(-2px); 
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            border-color: rgba(255, 255, 255, 0.2);
+            color: white;
+            border-color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
         }
 
-        .btn:active { transform: translateY(0); }
+        .btn:active { transform: translateY(1px); }
 
         .btn-primary { 
-            background: linear-gradient(135deg, var(--primary), #7c3aed); 
-            border: none;
-            box-shadow: 0 4px 12px var(--primary-glow);
+            background: rgba(0, 242, 255, 0.05);
+            color: var(--primary);
+            border-color: rgba(0, 242, 255, 0.3);
         }
         .btn-primary:hover { 
-            background: linear-gradient(135deg, #7c3aed, var(--primary)); 
-            box-shadow: 0 6px 16px var(--primary-glow);
+            background: rgba(0, 242, 255, 0.15);
+            color: #fff;
+            border-color: var(--primary);
+            box-shadow: 0 0 20px var(--primary-glow);
+            text-shadow: 0 0 8px var(--primary-glow);
         }
 
         .btn-success { 
-            background: rgba(16, 185, 129, 0.1); 
-            color: #34d399; 
-            border-color: rgba(16, 185, 129, 0.2); 
+            color: var(--success); 
+            border-color: rgba(0, 255, 157, 0.3); 
+            background: rgba(0, 255, 157, 0.05);
         }
         .btn-success:hover { 
-            background: rgba(16, 185, 129, 0.2); 
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+            background: rgba(0, 255, 157, 0.15);
+            border-color: var(--success);
+            color: #fff;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.4);
         }
 
         .btn-danger { 
-            background: rgba(239, 68, 68, 0.1); 
-            color: #f87171; 
+            color: var(--danger); 
+            border-color: rgba(255, 0, 85, 0.3); 
+            background: rgba(255, 0, 85, 0.05); 
             border-color: rgba(239, 68, 68, 0.2); 
         }
         .btn-danger:hover { 
-            background: rgba(239, 68, 68, 0.2); 
-            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+            background: rgba(255, 0, 85, 0.15);
+            border-color: var(--danger);
+            color: #fff;
+            box-shadow: 0 0 20px rgba(255, 0, 85, 0.4);
         }
 
         /* Stats Cards */
         .stats-grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); 
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
             gap: 24px; 
-            margin-bottom: 24px;
+            margin-bottom: 32px;
         }
 
         .stat-card { 
-            background: var(--bg-card);
+            background: var(--bg-panel);
             backdrop-filter: blur(12px);
-            border: var(--glass-border);
-            border-radius: 20px; 
+            border: 1px solid var(--border);
+            border-radius: 12px; 
             padding: 24px; 
             position: relative;
-            overflow: hidden;
-            transition: all 0.3s ease;
-            box-shadow: var(--shadow);
+            transition: all 0.4s ease;
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
         }
 
         .stat-card:hover { 
             transform: translateY(-4px); 
-            background: var(--bg-card-hover);
-            box-shadow: var(--shadow-lg);
-            border-color: rgba(255, 255, 255, 0.1);
+            border-color: var(--primary);
+            box-shadow: 0 0 30px rgba(0, 242, 255, 0.15), inset 0 0 20px rgba(0, 242, 255, 0.05);
         }
-
-        .stat-card::after {
+        
+        .stat-card::before {
             content: '';
             position: absolute;
-            top: 0; right: 0; bottom: 0; left: 0;
-            background: radial-gradient(circle at top right, rgba(255,255,255,0.03), transparent 60%);
-            pointer-events: none;
+            top: 0; left: 0; width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            opacity: 0;
+            transition: opacity 0.4s;
         }
+        .stat-card:hover::before { opacity: 1; }
 
         .stat-icon { 
-            width: 48px; height: 48px;
-            border-radius: 12px;
+            width: 40px; height: 40px;
+            border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
-            font-size: 24px;
             margin-bottom: 16px;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
         .stat-label { 
-            font-size: 13px; 
+            font-size: 12px; 
             color: var(--text-secondary); 
             text-transform: uppercase; 
-            letter-spacing: 1px; 
+            letter-spacing: 2px; 
             font-weight: 600;
             margin-bottom: 8px;
         }
 
         .stat-value { 
-            font-size: 32px; 
+            font-family: var(--font-mono);
+            font-size: 36px; 
             font-weight: 700; 
             color: white;
-            letter-spacing: -0.5px;
+            letter-spacing: -1px;
+            text-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
 
         .stat-value.gradient {
-            background: linear-gradient(135deg, var(--secondary), var(--primary));
+            background: linear-gradient(135deg, #fff, var(--primary));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 10px rgba(0, 242, 255, 0.3));
         }
 
         /* Table */
@@ -604,7 +633,8 @@ const HTML_CONTENT = `
         <div class="header">
             <div class="header-left">
                 <h1>
-                    <span>⚡</span> API 监控看板
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                    API 监控看板
                 </h1>
                 <div class="update-time" id="updateTime">
                     <span class="spinner" style="width: 14px; height: 14px; border-width: 1px;"></span> 正在连接...
@@ -612,16 +642,16 @@ const HTML_CONTENT = `
             </div>
             <div class="header-actions">
                 <button class="btn btn-primary" onclick="openManageModal()">
-                    <span>＋</span> 导入 Key
+                    <span>+</span> 导入 Key
                 </button>
                 <button class="btn btn-success" onclick="exportKeys()" id="exportKeysBtn">
-                    <span>📥</span> 导出
+                    导出 Key
                 </button>
                 <button class="btn btn-danger" onclick="deleteZeroBalanceKeys()" id="deleteZeroBtn">
-                    <span>🧹</span> 清理无效
+                    清理无效
                 </button>
                 <button class="btn btn-danger" onclick="deleteAllKeys()" id="deleteAllBtn">
-                    <span>🗑️</span> 全部删除
+                    全部删除
                 </button>
             </div>
         </div>
@@ -650,7 +680,7 @@ const HTML_CONTENT = `
     <div id="manageModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>📦 批量导入 API Key</h2>
+                <h2>批量导入 API Key</h2>
                 <button class="close-btn" onclick="closeManageModal()">×</button>
             </div>
             <div class="modal-body">
@@ -661,7 +691,7 @@ const HTML_CONTENT = `
                         <textarea id="batchKeysInput" placeholder="支持格式：&#10;fk-xxxxxxxxxxxxx&#10;my-id:fk-xxxxxxxxxxxxx"></textarea>
                     </div>
                     <div style="display: flex; gap: 12px; margin-top: 24px;">
-                        <button type="submit" class="btn btn-primary" style="flex: 1; justify-content: center;">🚀 开始导入</button>
+                        <button type="submit" class="btn btn-primary" style="flex: 1; justify-content: center;">开始导入</button>
                         <button type="button" class="btn" style="background: rgba(255,255,255,0.1);" onclick="document.getElementById('batchKeysInput').value='';">清空</button>
                     </div>
                 </form>
@@ -698,7 +728,7 @@ const HTML_CONTENT = `
                     displayData(data);  
                 })  
                 .catch(error => {  
-                    document.getElementById('tableContent').innerHTML = \`<div class="loading-container" style="color: var(--danger)">❌ 加载失败: \${error.message}</div>\`;  
+                    document.getElementById('tableContent').innerHTML = \`<div class="loading-container" style="color: var(--danger)">加载失败: \${error.message}</div>\`;  
                     document.getElementById('updateTime').textContent = "加载失败";  
                 })  
                 .finally(() => {  
@@ -709,7 +739,7 @@ const HTML_CONTENT = `
   
         function displayData(data) {
             currentApiData = data;
-            document.getElementById('updateTime').innerHTML = \`🕒 最后更新: \${data.update_time} <span style="margin: 0 8px; opacity: 0.3">|</span> 共 \${data.total_count} 个 Key\`;
+            document.getElementById('updateTime').innerHTML = \`最后更新: \${data.update_time} <span style="margin: 0 8px; opacity: 0.3">|</span> 共 \${data.total_count} 个 Key\`;
 
             const totalAllowance = data.totals.total_totalAllowance;
             const totalUsed = data.totals.total_orgTotalTokensUsed;
@@ -720,22 +750,22 @@ const HTML_CONTENT = `
             const statsCards = document.getElementById('statsCards');  
             statsCards.innerHTML = \`  
                 <div class="stat-card">
-                    <div class="stat-icon" style="color: #8b5cf6; background: rgba(139, 92, 246, 0.1);">💰</div>
+                    <div class="stat-icon" style="color: #8b5cf6; background: rgba(139, 92, 246, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M15 9.5c-1-1-2.5-1-3.5 0s-1 2.5 0 3.5 2.5 1 3.5 0M9 14.5c1 1 2.5 1 3.5 0"/></svg></div>
                     <div class="stat-label">总计额度</div>
                     <div class="stat-value">\${formatNumber(totalAllowance)}</div>
                 </div>  
                 <div class="stat-card">
-                    <div class="stat-icon" style="color: #06b6d4; background: rgba(6, 182, 212, 0.1);">📊</div>
+                    <div class="stat-icon" style="color: #06b6d4; background: rgba(6, 182, 212, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></div>
                     <div class="stat-label">已使用</div>
                     <div class="stat-value">\${formatNumber(totalUsed)}</div>
                 </div>  
                 <div class="stat-card">
-                    <div class="stat-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.1);">✨</div>
+                    <div class="stat-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
                     <div class="stat-label">剩余额度</div>
                     <div class="stat-value gradient">\${formatNumber(totalRemaining)}</div>
                 </div>  
                 <div class="stat-card">
-                    <div class="stat-icon" style="color: #f59e0b; background: rgba(245, 158, 11, 0.1);">📈</div>
+                    <div class="stat-icon" style="color: #f59e0b; background: rgba(245, 158, 11, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
                     <div class="stat-label">使用率</div>
                     <div class="stat-value">\${formatPercentage(overallRatio)}</div>
                     <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(overallRatio * 100, 100)}%"></div></div>
@@ -762,10 +792,10 @@ const HTML_CONTENT = `
                     tableHTML += \`
                         <tr>
                             <td><span class="key-badge" title="\${item.key}">\${item.key}</span></td>
-                            <td colspan="5" style="color: var(--danger); font-weight: 500;">⚠️ \${item.error}</td>
+                            <td colspan="5" style="color: var(--danger); font-weight: 500;">\${item.error}</td>
                             <td style="text-align: center;">
                                 <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="refreshSingleKey('\${item.id}')">↻</button>
-                                <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px; margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')">🗑️</button>
+                                <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px; margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')">×</button>
                             </td>
                         </tr>\`;
                 } else {
@@ -794,7 +824,7 @@ const HTML_CONTENT = `
                             </td>
                             <td style="text-align: center; white-space: nowrap;">
                                 <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="refreshSingleKey('\${item.id}')" title="刷新">↻</button>
-                                <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px; margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')" title="删除">🗑️</button>
+                                <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px; margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')" title="删除">×</button>
                             </td>
                         </tr>\`;
                 }
@@ -828,7 +858,7 @@ const HTML_CONTENT = `
         }
 
         async function exportKeys() {
-            const password = prompt('🔐 请输入导出密码：');
+            const password = prompt('请输入导出密码：');
             if (!password) return;
 
             const exportBtn = document.getElementById('exportKeysBtn');
@@ -859,10 +889,10 @@ const HTML_CONTENT = `
                     URL.revokeObjectURL(url);
                     alert(\`成功导出 \${result.keys.length} 个Key\`);
                 } else {
-                    alert('❌ 导出失败: ' + (result.error || '未知错误'));
+                    alert('导出失败: ' + (result.error || '未知错误'));
                 }
             } catch (error) {
-                alert('❌ 网络错误: ' + error.message);
+                alert('网络错误: ' + error.message);
             } finally {
                 exportBtn.disabled = false;
                 exportBtn.innerHTML = originalHTML;
@@ -870,13 +900,13 @@ const HTML_CONTENT = `
         }
 
         async function deleteAllKeys() {
-            if (!currentApiData) return alert('⚠️ 请先加载数据');
+            if (!currentApiData) return alert('请先加载数据');
             const totalKeys = currentApiData.total_count;
-            if (totalKeys === 0) return alert('📭 没有可删除的 Key');
+            if (totalKeys === 0) return alert('没有可删除的 Key');
 
-            if (!confirm(\`🚨 危险操作！\\n\\n确定要删除所有 \${totalKeys} 个 Key 吗？\\n此操作不可恢复！\`)) return;
-            const secondConfirm = prompt('⚠️ 请输入 "确认删除" 以继续：');
-            if (secondConfirm !== '确认删除') return alert('✅ 操作已取消');
+            if (!confirm(\`危险操作！\\n\\n确定要删除所有 \${totalKeys} 个 Key 吗？\\n此操作不可恢复！\`)) return;
+            const secondConfirm = prompt('请输入 "确认删除" 以继续：');
+            if (secondConfirm !== '确认删除') return alert('操作已取消');
 
             const deleteBtn = document.getElementById('deleteAllBtn');
             deleteBtn.disabled = true;
@@ -893,13 +923,13 @@ const HTML_CONTENT = `
 
                 const result = await response.json();
                 if (response.ok) {
-                    alert(\`✅ 成功删除 \${result.deleted || totalKeys} 个 Key\`);
+                    alert(\`成功删除 \${result.deleted || totalKeys} 个 Key\`);
                     loadData();
                 } else {
-                    alert('❌ 删除失败: ' + (result.error || '未知错误'));
+                    alert('删除失败: ' + (result.error || '未知错误'));
                 }
             } catch (error) {
-                alert('❌ 网络错误: ' + error.message);
+                alert('网络错误: ' + error.message);
             } finally {
                 deleteBtn.disabled = false;
                 deleteBtn.innerHTML = originalHTML;
@@ -907,15 +937,15 @@ const HTML_CONTENT = `
         }
 
         async function deleteZeroBalanceKeys() {
-            if (!currentApiData) return alert('⚠️ 请先加载数据');
+            if (!currentApiData) return alert('请先加载数据');
             const zeroBalanceKeys = currentApiData.data.filter(item => {
                 if (item.error) return false;
                 const remaining = Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
                 return remaining === 0;
             });
 
-            if (zeroBalanceKeys.length === 0) return alert('🎉 太棒了！没有找到余额为 0 的 Key');
-            if (!confirm(\`🧹 清理确认\\n\\n发现 \${zeroBalanceKeys.length} 个余额为 0 的 Key\\n确定要删除吗？\`)) return;
+            if (zeroBalanceKeys.length === 0) return alert('太棒了！没有找到余额为 0 的 Key');
+            if (!confirm(\`清理确认\\n\\n发现 \${zeroBalanceKeys.length} 个余额为 0 的 Key\\n确定要删除吗？\`)) return;
 
             const deleteBtn = document.getElementById('deleteZeroBtn');
             deleteBtn.disabled = true;
@@ -930,13 +960,13 @@ const HTML_CONTENT = `
                 });
                 const result = await response.json();
                 if (response.ok) {
-                    alert(\`✅ 成功清理 \${result.deleted || zeroBalanceKeys.length} 个无效 Key\`);
+                    alert(\`成功清理 \${result.deleted || zeroBalanceKeys.length} 个无效 Key\`);
                     loadData();
                 } else {
-                    alert('❌ 清理失败: ' + (result.error || '未知错误'));
+                    alert('清理失败: ' + (result.error || '未知错误'));
                 }
             } catch (error) {
-                alert('❌ 网络错误: ' + error.message);
+                alert('网络错误: ' + error.message);
             } finally {
                 deleteBtn.disabled = false;
                 deleteBtn.innerHTML = originalHTML;
@@ -976,7 +1006,7 @@ const HTML_CONTENT = `
                 });
                 const result = await response.json();
                 if (response.ok) {
-                    showMessage(\`🎉 成功导入 \${result.added} 个 Key\${result.skipped > 0 ? \`，跳过 \${result.skipped} 个重复\` : ''}\`);
+                    showMessage(\`成功导入 \${result.added} 个 Key\${result.skipped > 0 ? \`，跳过 \${result.skipped} 个重复\` : ''}\`);
                     document.getElementById('batchKeysInput').value = '';
                     closeManageModal();
                     loadData();
@@ -989,14 +1019,14 @@ const HTML_CONTENT = `
         }
 
         async function deleteKeyFromTable(id) {
-            if (!confirm(\`🗑️ 确定要删除这个 Key 吗？\`)) return;
+            if (!confirm(\`确定要删除这个 Key 吗？\`)) return;
             try {
                 const response = await fetch(\`/api/keys/\${id}\`, { method: 'DELETE' });
                 const result = await response.json();
                 if (response.ok) loadData();
-                else alert('❌ 删除失败: ' + (result.error || '未知错误'));
+                else alert('删除失败: ' + (result.error || '未知错误'));
             } catch (error) {
-                alert('❌ 网络错误: ' + error.message);
+                alert('网络错误: ' + error.message);
             }
         }
 
@@ -1009,7 +1039,7 @@ const HTML_CONTENT = `
             cells.forEach((cell, index) => {
                 originalContent[index] = cell.innerHTML;
                 if (index > 0 && index < cells.length - 1) {
-                    cell.innerHTML = '<span style="color: var(--text-secondary);">⏳ 刷新中...</span>';
+                    cell.innerHTML = '<span style="color: var(--text-secondary);">刷新中...</span>';
                 }
             });
 
@@ -1066,8 +1096,8 @@ const HTML_CONTENT = `
 </body>
 </html>
 `;
-  
-  
+
+
 // ==================== API Data Fetching ====================
 
 /**
@@ -1080,18 +1110,18 @@ async function batchProcess<T, R>(
   delayMs: number = 100
 ): Promise<R[]> {
   const results: R[] = [];
-  
+
   for (let i = 0; i < items.length; i += concurrency) {
     const batch = items.slice(i, i + concurrency);
     const batchResults = await Promise.all(batch.map(processor));
     results.push(...batchResults);
-    
+
     // Add delay between batches to avoid rate limiting
     if (i + concurrency < items.length) {
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
-  
+
   return results;
 }
 
@@ -1121,7 +1151,7 @@ async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise
 
     const apiData: ApiResponse = await response.json();
     const { usage } = apiData;
-    
+
     if (!usage?.standard) {
       return { id, key: maskedKey, error: 'Invalid API response' };
     }
@@ -1139,9 +1169,9 @@ async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise
   } catch (error) {
     return { id, key: maskedKey, error: 'Failed to fetch' };
   }
-}  
-  
-  
+}
+
+
 // ==================== Type Guards ====================
 
 const isApiUsageData = (result: ApiKeyResult): result is ApiUsageData => !('error' in result);
@@ -1217,7 +1247,7 @@ function logKeysWithBalance(validResults: ApiUsageData[], keyPairs: ApiKey[]): v
   } else {
     console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
   }
-}  
+}
 
 
 // ==================== Auto-Refresh Logic (NEW) ====================
@@ -1227,11 +1257,11 @@ function logKeysWithBalance(validResults: ApiUsageData[], keyPairs: ApiKey[]): v
  */
 async function autoRefreshData() {
   if (serverState.isCurrentlyUpdating()) return;
-  
+
   const timestamp = format(getBeijingTime(), "HH:mm:ss");
   console.log(`[${timestamp}] Starting data refresh...`);
   serverState.startUpdate();
-  
+
   try {
     const data = await getAggregatedData();
     serverState.updateCache(data);
@@ -1241,8 +1271,8 @@ async function autoRefreshData() {
   }
 }
 
-  
-  
+
+
 // ==================== Route Handlers ====================
 
 /**
@@ -1259,11 +1289,11 @@ function handleRoot(): Response {
  */
 async function handleGetData(): Promise<Response> {
   const cachedData = serverState.getData();
-  
+
   if (cachedData) {
     return createJsonResponse(cachedData);
   }
-  
+
   const lastError = serverState.getError();
   if (lastError) {
     return createErrorResponse(lastError, 500);
@@ -1318,7 +1348,7 @@ async function handleBatchImport(items: unknown[]): Promise<Response> {
 
   for (const item of items) {
     if (!item || typeof item !== 'object' || !('key' in item)) continue;
-    
+
     const { key } = item as { key: string };
     if (!key || existingKeys.has(key)) {
       if (key) skipped++;
@@ -1348,7 +1378,7 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
   const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   await addKey(id, key);
   autoRefreshData();
-  
+
   return createJsonResponse({ success: true });
 }
 
@@ -1358,7 +1388,7 @@ async function handleDeleteKey(pathname: string): Promise<Response> {
 
   await deleteKey(id);
   autoRefreshData();
-  
+
   return createJsonResponse({ success: true });
 }
 
@@ -1369,7 +1399,7 @@ async function handleBatchDeleteKeys(req: Request): Promise<Response> {
       return createErrorResponse("ids array is required", 400);
     }
 
-    await Promise.all(ids.map(id => deleteKey(id).catch(() => {})));
+    await Promise.all(ids.map(id => deleteKey(id).catch(() => { })));
     autoRefreshData();
 
     return createJsonResponse({ success: true, deleted: ids.length });
@@ -1417,7 +1447,7 @@ async function handleRefreshSingleKey(pathname: string): Promise<Response> {
 
     // Get the key from database
     const result = await kv.get<string>(["api_keys", id]);
-    
+
     if (!result.value) {
       return createErrorResponse("Key not found", 404);
     }
@@ -1494,15 +1524,15 @@ async function handler(req: Request): Promise<Response> {
 
 async function startServer() {
   console.log("Initializing server...");
-  
+
   // Perform an initial data fetch on startup and WAIT for it to complete
   console.log("Performing initial data fetch...");
   await autoRefreshData();
   console.log("Initial data loaded successfully.");
-  
+
   // Set up the interval for subsequent refreshes
   setInterval(autoRefreshData, CONFIG.AUTO_REFRESH_INTERVAL_SECONDS * 1000);
-  
+
   console.log(`Server running on http://localhost:${CONFIG.PORT}`);
   serve(handler, { port: CONFIG.PORT });
 }
