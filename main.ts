@@ -5,100 +5,100 @@ import { format } from "https://deno.land/std@0.182.0/datetime/mod.ts";
 // ==================== Type Definitions ====================
 
 interface ApiKey {
-  id: string;
-  key: string;
+    id: string;
+    key: string;
 }
 
 interface ApiUsageData {
-  id: string;
-  key: string;
-  fullKey: string;
-  startDate: string;
-  endDate: string;
-  orgTotalTokensUsed: number;
-  totalAllowance: number;
-  usedRatio: number;
+    id: string;
+    key: string;
+    fullKey: string;
+    startDate: string;
+    endDate: string;
+    orgTotalTokensUsed: number;
+    totalAllowance: number;
+    usedRatio: number;
 }
 
 interface ApiErrorData {
-  id: string;
-  key: string;
-  fullKey: string;
-  error: string;
+    id: string;
+    key: string;
+    fullKey: string;
+    error: string;
 }
 
 type ApiKeyResult = ApiUsageData | ApiErrorData;
 
 interface UsageTotals {
-  total_orgTotalTokensUsed: number;
-  total_totalAllowance: number;
-  totalRemaining: number;
+    total_orgTotalTokensUsed: number;
+    total_totalAllowance: number;
+    totalRemaining: number;
 }
 
 interface AggregatedResponse {
-  update_time: string;
-  total_count: number;
-  totals: UsageTotals;
-  data: ApiKeyResult[];
+    update_time: string;
+    total_count: number;
+    totals: UsageTotals;
+    data: ApiKeyResult[];
 }
 
 interface ApiResponse {
-  usage: {
-    startDate: number;
-    endDate: number;
-    standard: {
-      orgTotalTokensUsed: number;
-      totalAllowance: number;
-      usedRatio: number;
+    usage: {
+        startDate: number;
+        endDate: number;
+        standard: {
+            orgTotalTokensUsed: number;
+            totalAllowance: number;
+            usedRatio: number;
+        };
     };
-  };
 }
 
 interface BatchImportResult {
-  success: boolean;
-  added: number;
-  skipped: number;
+    success: boolean;
+    added: number;
+    skipped: number;
 }
 
 // ==================== Configuration ====================
 
 const CONFIG = {
-  PORT: 8000,
-  API_ENDPOINT: 'https://app.factory.ai/api/organization/members/chat-usage',
-  USER_AGENT: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-  TIMEZONE_OFFSET_HOURS: 8, // Beijing time
-  KEY_MASK_PREFIX_LENGTH: 4,
-  KEY_MASK_SUFFIX_LENGTH: 4,
-  AUTO_REFRESH_INTERVAL_SECONDS: 60, // Set auto-refresh interval to 60 seconds
-  EXPORT_PASSWORD: Deno.env.get("EXPORT_PASSWORD") || "admin123", // Default password for key export
-  ACCESS_PASSWORD: Deno.env.get("PASSWORD") || "", // Access password for dashboard (empty = no password required)
+    PORT: 8000,
+    API_ENDPOINT: 'https://app.factory.ai/api/organization/members/chat-usage',
+    USER_AGENT: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+    TIMEZONE_OFFSET_HOURS: 8, // Beijing time
+    KEY_MASK_PREFIX_LENGTH: 4,
+    KEY_MASK_SUFFIX_LENGTH: 4,
+    AUTO_REFRESH_INTERVAL_SECONDS: 60, // Set auto-refresh interval to 60 seconds
+    EXPORT_PASSWORD: Deno.env.get("EXPORT_PASSWORD") || "admin123", // Default password for key export
+    ACCESS_PASSWORD: Deno.env.get("PASSWORD") || "", // Access password for dashboard (empty = no password required)
 } as const;
 
 // ==================== Server State and Caching (NEW) ====================
 
 class ServerState {
-  private cachedData: AggregatedResponse | null = null;
-  private lastError: string | null = null;
-  private isUpdating = false;
+    private cachedData: AggregatedResponse | null = null;
+    private lastError: string | null = null;
+    private isUpdating = false;
 
-  getData = () => this.cachedData;
-  getError = () => this.lastError;
-  isCurrentlyUpdating = () => this.isUpdating;
+    getData = () => this.cachedData;
+    getError = () => this.lastError;
+    isCurrentlyUpdating = () => this.isUpdating;
 
-  updateCache(data: AggregatedResponse) {
-    this.cachedData = data;
-    this.lastError = null;
-    this.isUpdating = false;
-  }
+    updateCache(data: AggregatedResponse) {
+        this.cachedData = data;
+        this.lastError = null;
+        this.isUpdating = false;
+    }
 
-  setError(errorMessage: string) {
-    this.lastError = errorMessage;
-    this.isUpdating = false;
-  }
+    setError(errorMessage: string) {
+        this.lastError = errorMessage;
+        this.isUpdating = false;
+    }
 
-  startUpdate() {
-    this.isUpdating = true;
-  }
+    startUpdate() {
+        this.isUpdating = true;
+    }
 }
 
 const serverState = new ServerState();
@@ -111,62 +111,62 @@ const kv = await Deno.openKv();
 // ==================== Database Operations ====================
 
 async function getAllKeys(): Promise<ApiKey[]> {
-  const keys: ApiKey[] = [];
-  const entries = kv.list<string>({ prefix: ["api_keys"] });
+    const keys: ApiKey[] = [];
+    const entries = kv.list<string>({ prefix: ["api_keys"] });
 
-  for await (const entry of entries) {
-    const id = entry.key[1] as string;
-    keys.push({ id, key: entry.value });
-  }
+    for await (const entry of entries) {
+        const id = entry.key[1] as string;
+        keys.push({ id, key: entry.value });
+    }
 
-  return keys;
+    return keys;
 }
 
 async function addKey(id: string, key: string): Promise<void> {
-  await kv.set(["api_keys", id], key);
+    await kv.set(["api_keys", id], key);
 }
 
 async function deleteKey(id: string): Promise<void> {
-  await kv.delete(["api_keys", id]);
+    await kv.delete(["api_keys", id]);
 }
 
 async function apiKeyExists(key: string): Promise<boolean> {
-  const keys = await getAllKeys();
-  return keys.some(k => k.key === key);
+    const keys = await getAllKeys();
+    return keys.some(k => k.key === key);
 }
 
 // ==================== Utility Functions ====================
 
 function maskApiKey(key: string): string {
-  if (key.length <= CONFIG.KEY_MASK_PREFIX_LENGTH + CONFIG.KEY_MASK_SUFFIX_LENGTH) {
-    return `${key.substring(0, CONFIG.KEY_MASK_PREFIX_LENGTH)}...`;
-  }
-  return `${key.substring(0, CONFIG.KEY_MASK_PREFIX_LENGTH)}...${key.substring(key.length - CONFIG.KEY_MASK_SUFFIX_LENGTH)}`;
+    if (key.length <= CONFIG.KEY_MASK_PREFIX_LENGTH + CONFIG.KEY_MASK_SUFFIX_LENGTH) {
+        return `${key.substring(0, CONFIG.KEY_MASK_PREFIX_LENGTH)}...`;
+    }
+    return `${key.substring(0, CONFIG.KEY_MASK_PREFIX_LENGTH)}...${key.substring(key.length - CONFIG.KEY_MASK_SUFFIX_LENGTH)}`;
 }
 
 function formatDate(timestamp: number | null | undefined): string {
-  if (!timestamp && timestamp !== 0) return 'N/A';
+    if (!timestamp && timestamp !== 0) return 'N/A';
 
-  try {
-    return new Date(timestamp).toISOString().split('T')[0];
-  } catch {
-    return 'Invalid Date';
-  }
+    try {
+        return new Date(timestamp).toISOString().split('T')[0];
+    } catch {
+        return 'Invalid Date';
+    }
 }
 
 function getBeijingTime(): Date {
-  return new Date(Date.now() + CONFIG.TIMEZONE_OFFSET_HOURS * 60 * 60 * 1000);
+    return new Date(Date.now() + CONFIG.TIMEZONE_OFFSET_HOURS * 60 * 60 * 1000);
 }
 
 function createJsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: { "Content-Type": "application/json" },
+    });
 }
 
 function createErrorResponse(message: string, status = 500): Response {
-  return createJsonResponse({ error: message }, status);
+    return createJsonResponse({ error: message }, status);
 }
 
 // HTML content is embedded as a template string
@@ -744,7 +744,7 @@ const HTML_CONTENT = `
     <div class="container">
         <div class="header">
             <div class="header-left">
-                <h1>API 监控看板</h1>
+                <h1>Droid API Key 监控看板</h1>
                 <div class="update-time" id="updateTime">
                     <span class="spinner" style="width: 14px; height: 14px; border-width: 1px;"></span> 正在连接...
                 </div>
@@ -1765,72 +1765,72 @@ const HTML_CONTENT = `
  * Batch process promises with concurrency control to avoid rate limiting.
  */
 async function batchProcess<T, R>(
-  items: T[],
-  processor: (item: T) => Promise<R>,
-  concurrency: number = 10,
-  delayMs: number = 100
+    items: T[],
+    processor: (item: T) => Promise<R>,
+    concurrency: number = 10,
+    delayMs: number = 100
 ): Promise<R[]> {
-  const results: R[] = [];
+    const results: R[] = [];
 
-  for (let i = 0; i < items.length; i += concurrency) {
-    const batch = items.slice(i, i + concurrency);
-    const batchResults = await Promise.all(batch.map(processor));
-    results.push(...batchResults);
+    for (let i = 0; i < items.length; i += concurrency) {
+        const batch = items.slice(i, i + concurrency);
+        const batchResults = await Promise.all(batch.map(processor));
+        results.push(...batchResults);
 
-    // Add delay between batches to avoid rate limiting
-    if (i + concurrency < items.length) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+        // Add delay between batches to avoid rate limiting
+        if (i + concurrency < items.length) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
     }
-  }
 
-  return results;
+    return results;
 }
 
 /**
  * Fetches usage data for a single API key with retry logic.
  */
 async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise<ApiKeyResult> {
-  const maskedKey = maskApiKey(key);
-  const maxRetries = 2;
+    const maskedKey = maskApiKey(key);
+    const maxRetries = 2;
 
-  try {
-    const response = await fetch(CONFIG.API_ENDPOINT, {
-      headers: {
-        'Authorization': `Bearer ${key}`,
-        'User-Agent': CONFIG.USER_AGENT,
-      }
-    });
+    try {
+        const response = await fetch(CONFIG.API_ENDPOINT, {
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'User-Agent': CONFIG.USER_AGENT,
+            }
+        });
 
-    if (!response.ok) {
-      if (response.status === 401 && retryCount < maxRetries) {
-        const delayMs = (retryCount + 1) * 1000;
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        return fetchApiKeyData(id, key, retryCount + 1);
-      }
-      return { id, key: maskedKey, fullKey: key, error: `HTTP ${response.status}` };
+        if (!response.ok) {
+            if (response.status === 401 && retryCount < maxRetries) {
+                const delayMs = (retryCount + 1) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                return fetchApiKeyData(id, key, retryCount + 1);
+            }
+            return { id, key: maskedKey, fullKey: key, error: `HTTP ${response.status}` };
+        }
+
+        const apiData: ApiResponse = await response.json();
+        const { usage } = apiData;
+
+        if (!usage?.standard) {
+            return { id, key: maskedKey, fullKey: key, error: 'Invalid API response' };
+        }
+
+        const { standard } = usage;
+        return {
+            id,
+            key: maskedKey,
+            fullKey: key,
+            startDate: formatDate(usage.startDate),
+            endDate: formatDate(usage.endDate),
+            orgTotalTokensUsed: standard.orgTotalTokensUsed || 0,
+            totalAllowance: standard.totalAllowance || 0,
+            usedRatio: standard.usedRatio || 0,
+        };
+    } catch (error) {
+        return { id, key: maskedKey, fullKey: key, error: 'Failed to fetch' };
     }
-
-    const apiData: ApiResponse = await response.json();
-    const { usage } = apiData;
-
-    if (!usage?.standard) {
-      return { id, key: maskedKey, fullKey: key, error: 'Invalid API response' };
-    }
-
-    const { standard } = usage;
-    return {
-      id,
-      key: maskedKey,
-      fullKey: key,
-      startDate: formatDate(usage.startDate),
-      endDate: formatDate(usage.endDate),
-      orgTotalTokensUsed: standard.orgTotalTokensUsed || 0,
-      totalAllowance: standard.totalAllowance || 0,
-      usedRatio: standard.usedRatio || 0,
-    };
-  } catch (error) {
-    return { id, key: maskedKey, fullKey: key, error: 'Failed to fetch' };
-  }
 }
 
 
@@ -1844,71 +1844,71 @@ const isApiUsageData = (result: ApiKeyResult): result is ApiUsageData => !('erro
  * Aggregates data from all configured API keys.
  */
 async function getAggregatedData(): Promise<AggregatedResponse> {
-  const keyPairs = await getAllKeys();
-  const beijingTime = getBeijingTime();
-  const emptyResponse = {
-    update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
-    total_count: 0,
-    totals: { total_orgTotalTokensUsed: 0, total_totalAllowance: 0, totalRemaining: 0 },
-    data: [],
-  };
+    const keyPairs = await getAllKeys();
+    const beijingTime = getBeijingTime();
+    const emptyResponse = {
+        update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
+        total_count: 0,
+        totals: { total_orgTotalTokensUsed: 0, total_totalAllowance: 0, totalRemaining: 0 },
+        data: [],
+    };
 
-  if (keyPairs.length === 0) return emptyResponse;
+    if (keyPairs.length === 0) return emptyResponse;
 
-  const results = await batchProcess(
-    keyPairs,
-    ({ id, key }) => fetchApiKeyData(id, key),
-    10,
-    100
-  );
+    const results = await batchProcess(
+        keyPairs,
+        ({ id, key }) => fetchApiKeyData(id, key),
+        10,
+        100
+    );
 
-  const validResults = results.filter(isApiUsageData);
-  const sortedValid = validResults
-    .map(r => ({ ...r, remaining: Math.max(0, r.totalAllowance - r.orgTotalTokensUsed) }))
-    .sort((a, b) => b.remaining - a.remaining)
-    .map(({ remaining, ...rest }) => rest);
+    const validResults = results.filter(isApiUsageData);
+    const sortedValid = validResults
+        .map(r => ({ ...r, remaining: Math.max(0, r.totalAllowance - r.orgTotalTokensUsed) }))
+        .sort((a, b) => b.remaining - a.remaining)
+        .map(({ remaining, ...rest }) => rest);
 
-  const totals = validResults.reduce((acc, res) => ({
-    total_orgTotalTokensUsed: acc.total_orgTotalTokensUsed + res.orgTotalTokensUsed,
-    total_totalAllowance: acc.total_totalAllowance + res.totalAllowance,
-    totalRemaining: acc.totalRemaining + Math.max(0, res.totalAllowance - res.orgTotalTokensUsed)
-  }), emptyResponse.totals);
+    const totals = validResults.reduce((acc, res) => ({
+        total_orgTotalTokensUsed: acc.total_orgTotalTokensUsed + res.orgTotalTokensUsed,
+        total_totalAllowance: acc.total_totalAllowance + res.totalAllowance,
+        totalRemaining: acc.totalRemaining + Math.max(0, res.totalAllowance - res.orgTotalTokensUsed)
+    }), emptyResponse.totals);
 
-  logKeysWithBalance(validResults, keyPairs);
+    logKeysWithBalance(validResults, keyPairs);
 
-  return {
-    update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
-    total_count: keyPairs.length,
-    totals,
-    data: [...sortedValid, ...results.filter(r => 'error' in r)],
-  };
+    return {
+        update_time: format(beijingTime, "yyyy-MM-dd HH:mm:ss"),
+        total_count: keyPairs.length,
+        totals,
+        data: [...sortedValid, ...results.filter(r => 'error' in r)],
+    };
 }
 
 /**
  * Logs API keys that still have remaining balance.
  */
 function logKeysWithBalance(validResults: ApiUsageData[], keyPairs: ApiKey[]): void {
-  const keysWithBalance = validResults.filter(r => {
-    const remaining = r.totalAllowance - r.orgTotalTokensUsed;
-    return remaining > 0;
-  });
-
-  if (keysWithBalance.length > 0) {
-    console.log("=".repeat(80));
-    console.log("📋 剩余额度大于0的API Keys:");
-    console.log("-".repeat(80));
-
-    keysWithBalance.forEach(item => {
-      const originalKeyPair = keyPairs.find(kp => kp.id === item.id);
-      if (originalKeyPair) {
-        console.log(originalKeyPair.key);
-      }
+    const keysWithBalance = validResults.filter(r => {
+        const remaining = r.totalAllowance - r.orgTotalTokensUsed;
+        return remaining > 0;
     });
 
-    console.log("=".repeat(80) + "\n");
-  } else {
-    console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
-  }
+    if (keysWithBalance.length > 0) {
+        console.log("=".repeat(80));
+        console.log("📋 剩余额度大于0的API Keys:");
+        console.log("-".repeat(80));
+
+        keysWithBalance.forEach(item => {
+            const originalKeyPair = keyPairs.find(kp => kp.id === item.id);
+            if (originalKeyPair) {
+                console.log(originalKeyPair.key);
+            }
+        });
+
+        console.log("=".repeat(80) + "\n");
+    } else {
+        console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
+    }
 }
 
 
@@ -1918,19 +1918,19 @@ function logKeysWithBalance(validResults: ApiUsageData[], keyPairs: ApiKey[]): v
  * Periodically fetches data and updates the server state cache.
  */
 async function autoRefreshData() {
-  if (serverState.isCurrentlyUpdating()) return;
+    if (serverState.isCurrentlyUpdating()) return;
 
-  const timestamp = format(getBeijingTime(), "HH:mm:ss");
-  console.log(`[${timestamp}] Starting data refresh...`);
-  serverState.startUpdate();
+    const timestamp = format(getBeijingTime(), "HH:mm:ss");
+    console.log(`[${timestamp}] Starting data refresh...`);
+    serverState.startUpdate();
 
-  try {
-    const data = await getAggregatedData();
-    serverState.updateCache(data);
-    console.log(`[${timestamp}] Data updated successfully.`);
-  } catch (error) {
-    serverState.setError(error instanceof Error ? error.message : 'Refresh failed');
-  }
+    try {
+        const data = await getAggregatedData();
+        serverState.updateCache(data);
+        console.log(`[${timestamp}] Data updated successfully.`);
+    } catch (error) {
+        serverState.setError(error instanceof Error ? error.message : 'Refresh failed');
+    }
 }
 
 
@@ -1941,216 +1941,216 @@ async function autoRefreshData() {
  * Handles the root path - serves the HTML dashboard.
  */
 function handleRoot(): Response {
-  return new Response(HTML_CONTENT, {
-    headers: { "Content-Type": "text/html; charset=utf-8" }
-  });
+    return new Response(HTML_CONTENT, {
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+    });
 }
 
 /**
  * Handles the /api/data endpoint - returns cached aggregated usage data.
  */
 async function handleGetData(): Promise<Response> {
-  const cachedData = serverState.getData();
+    const cachedData = serverState.getData();
 
-  if (cachedData) {
-    return createJsonResponse(cachedData);
-  }
+    if (cachedData) {
+        return createJsonResponse(cachedData);
+    }
 
-  const lastError = serverState.getError();
-  if (lastError) {
-    return createErrorResponse(lastError, 500);
-  }
+    const lastError = serverState.getError();
+    if (lastError) {
+        return createErrorResponse(lastError, 500);
+    }
 
-  // If there's no data and no error, it means an update is in progress
-  if (serverState.isCurrentlyUpdating()) {
-    return createErrorResponse("数据正在更新中，请稍候...", 503);
-  }
+    // If there's no data and no error, it means an update is in progress
+    if (serverState.isCurrentlyUpdating()) {
+        return createErrorResponse("数据正在更新中，请稍候...", 503);
+    }
 
-  // This shouldn't happen normally after initial load, but just in case
-  return createErrorResponse("暂无数据，请稍后刷新。", 503);
+    // This shouldn't happen normally after initial load, but just in case
+    return createErrorResponse("暂无数据，请稍后刷新。", 503);
 }
 
 /**
  * Handles GET /api/keys - returns all stored API keys.
  */
 async function handleGetKeys(): Promise<Response> {
-  try {
-    const keys = await getAllKeys();
-    return createJsonResponse(keys);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Error getting keys:', errorMessage);
-    return createErrorResponse(errorMessage, 500);
-  }
+    try {
+        const keys = await getAllKeys();
+        return createJsonResponse(keys);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Error getting keys:', errorMessage);
+        return createErrorResponse(errorMessage, 500);
+    }
 }
 
 /**
  * Handles POST /api/keys - adds single or multiple API keys.
  */
 async function handleAddKeys(req: Request): Promise<Response> {
-  try {
-    const body = await req.json();
+    try {
+        const body = await req.json();
 
-    // Support batch import
-    if (Array.isArray(body)) {
-      return await handleBatchImport(body);
-    } else {
-      return await handleSingleKeyAdd(body);
+        // Support batch import
+        if (Array.isArray(body)) {
+            return await handleBatchImport(body);
+        } else {
+            return await handleSingleKeyAdd(body);
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Invalid JSON';
+        console.error('Error adding keys:', errorMessage);
+        return createErrorResponse(errorMessage, 400);
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Invalid JSON';
-    console.error('Error adding keys:', errorMessage);
-    return createErrorResponse(errorMessage, 400);
-  }
 }
 
 async function handleBatchImport(items: unknown[]): Promise<Response> {
-  let added = 0, skipped = 0;
-  const existingKeys = new Set((await getAllKeys()).map(k => k.key));
+    let added = 0, skipped = 0;
+    const existingKeys = new Set((await getAllKeys()).map(k => k.key));
 
-  for (const item of items) {
-    if (!item || typeof item !== 'object' || !('key' in item)) continue;
+    for (const item of items) {
+        if (!item || typeof item !== 'object' || !('key' in item)) continue;
 
-    const { key } = item as { key: string };
-    if (!key || existingKeys.has(key)) {
-      if (key) skipped++;
-      continue;
+        const { key } = item as { key: string };
+        if (!key || existingKeys.has(key)) {
+            if (key) skipped++;
+            continue;
+        }
+
+        const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        await addKey(id, key);
+        existingKeys.add(key);
+        added++;
     }
 
-    const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    await addKey(id, key);
-    existingKeys.add(key);
-    added++;
-  }
+    if (added > 0) autoRefreshData();
 
-  if (added > 0) autoRefreshData();
-
-  return createJsonResponse({ success: true, added, skipped });
+    return createJsonResponse({ success: true, added, skipped });
 }
 
 async function handleSingleKeyAdd(body: unknown): Promise<Response> {
-  if (!body || typeof body !== 'object' || !('key' in body)) {
-    return createErrorResponse("key is required", 400);
-  }
+    if (!body || typeof body !== 'object' || !('key' in body)) {
+        return createErrorResponse("key is required", 400);
+    }
 
-  const { key } = body as { key: string };
-  if (!key) return createErrorResponse("key cannot be empty", 400);
-  if (await apiKeyExists(key)) return createErrorResponse("API key already exists", 409);
+    const { key } = body as { key: string };
+    if (!key) return createErrorResponse("key cannot be empty", 400);
+    if (await apiKeyExists(key)) return createErrorResponse("API key already exists", 409);
 
-  const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  await addKey(id, key);
-  autoRefreshData();
+    const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    await addKey(id, key);
+    autoRefreshData();
 
-  return createJsonResponse({ success: true });
+    return createJsonResponse({ success: true });
 }
 
 async function handleDeleteKey(pathname: string): Promise<Response> {
-  const id = pathname.split("/api/keys/")[1];
-  if (!id) return createErrorResponse("Key ID is required", 400);
+    const id = pathname.split("/api/keys/")[1];
+    if (!id) return createErrorResponse("Key ID is required", 400);
 
-  await deleteKey(id);
-  autoRefreshData();
+    await deleteKey(id);
+    autoRefreshData();
 
-  return createJsonResponse({ success: true });
+    return createJsonResponse({ success: true });
 }
 
 async function handleBatchDeleteKeys(req: Request): Promise<Response> {
-  try {
-    const { ids } = await req.json() as { ids: string[] };
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return createErrorResponse("ids array is required", 400);
+    try {
+        const { ids } = await req.json() as { ids: string[] };
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return createErrorResponse("ids array is required", 400);
+        }
+
+        await Promise.all(ids.map(id => deleteKey(id).catch(() => { })));
+        autoRefreshData();
+
+        return createJsonResponse({ success: true, deleted: ids.length });
+    } catch (error) {
+        return createErrorResponse(error instanceof Error ? error.message : 'Invalid JSON', 400);
     }
-
-    await Promise.all(ids.map(id => deleteKey(id).catch(() => { })));
-    autoRefreshData();
-
-    return createJsonResponse({ success: true, deleted: ids.length });
-  } catch (error) {
-    return createErrorResponse(error instanceof Error ? error.message : 'Invalid JSON', 400);
-  }
 }
 
 /**
  * Handles POST /api/keys/export - exports all API keys.
  */
 async function handleExportKeys(_req: Request): Promise<Response> {
-  try {
-    // Get all keys (unmasked)
-    const keys = await getAllKeys();
+    try {
+        // Get all keys (unmasked)
+        const keys = await getAllKeys();
 
-    return createJsonResponse({
-      success: true,
-      keys
-    });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Error exporting keys:', errorMessage);
-    return createErrorResponse(errorMessage, 500);
-  }
+        return createJsonResponse({
+            success: true,
+            keys
+        });
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Error exporting keys:', errorMessage);
+        return createErrorResponse(errorMessage, 500);
+    }
 }
 
 /**
  * Handles GET /api/auth/check - checks if password is required
  */
 function handleAuthCheck(): Response {
-  return createJsonResponse({
-    required: CONFIG.ACCESS_PASSWORD !== "",
-  });
+    return createJsonResponse({
+        required: CONFIG.ACCESS_PASSWORD !== "",
+    });
 }
 
 /**
  * Handles POST /api/auth/verify - verifies access password
  */
 async function handleAuthVerify(req: Request): Promise<Response> {
-  try {
-    const { password } = await req.json() as { password: string };
+    try {
+        const { password } = await req.json() as { password: string };
 
-    if (CONFIG.ACCESS_PASSWORD === "") {
-      return createJsonResponse({ success: true });
+        if (CONFIG.ACCESS_PASSWORD === "") {
+            return createJsonResponse({ success: true });
+        }
+
+        if (password === CONFIG.ACCESS_PASSWORD) {
+            return createJsonResponse({ success: true });
+        }
+
+        return createErrorResponse("密码错误", 401);
+    } catch (error) {
+        return createErrorResponse("Invalid request", 400);
     }
-
-    if (password === CONFIG.ACCESS_PASSWORD) {
-      return createJsonResponse({ success: true });
-    }
-
-    return createErrorResponse("密码错误", 401);
-  } catch (error) {
-    return createErrorResponse("Invalid request", 400);
-  }
 }
 
 /**
  * Handles POST /api/keys/:id/refresh - refreshes data for a single API key.
  */
 async function handleRefreshSingleKey(pathname: string): Promise<Response> {
-  try {
-    const id = pathname.split("/api/keys/")[1].replace("/refresh", "");
+    try {
+        const id = pathname.split("/api/keys/")[1].replace("/refresh", "");
 
-    if (!id) {
-      return createErrorResponse("Key ID is required", 400);
+        if (!id) {
+            return createErrorResponse("Key ID is required", 400);
+        }
+
+        // Get the key from database
+        const result = await kv.get<string>(["api_keys", id]);
+
+        if (!result.value) {
+            return createErrorResponse("Key not found", 404);
+        }
+
+        const key = result.value;
+
+        // Fetch fresh data for this key
+        const keyData = await fetchApiKeyData(id, key);
+
+        return createJsonResponse({
+            success: true,
+            data: keyData
+        });
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Error refreshing key:', errorMessage);
+        return createErrorResponse(errorMessage, 500);
     }
-
-    // Get the key from database
-    const result = await kv.get<string>(["api_keys", id]);
-
-    if (!result.value) {
-      return createErrorResponse("Key not found", 404);
-    }
-
-    const key = result.value;
-
-    // Fetch fresh data for this key
-    const keyData = await fetchApiKeyData(id, key);
-
-    return createJsonResponse({
-      success: true,
-      data: keyData
-    });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Error refreshing key:', errorMessage);
-    return createErrorResponse(errorMessage, 500);
-  }
 }
 
 // ==================== Main Request Handler ====================
@@ -2159,77 +2159,77 @@ async function handleRefreshSingleKey(pathname: string): Promise<Response> {
  * Main HTTP request handler that routes requests to appropriate handlers.
  */
 async function handler(req: Request): Promise<Response> {
-  const url = new URL(req.url);
+    const url = new URL(req.url);
 
-  // Route: Root path - Dashboard
-  if (url.pathname === "/") {
-    return handleRoot();
-  }
+    // Route: Root path - Dashboard
+    if (url.pathname === "/") {
+        return handleRoot();
+    }
 
-  // Route: GET /api/data - Get aggregated usage data
-  if (url.pathname === "/api/data" && req.method === "GET") {
-    return await handleGetData();
-  }
+    // Route: GET /api/data - Get aggregated usage data
+    if (url.pathname === "/api/data" && req.method === "GET") {
+        return await handleGetData();
+    }
 
-  // Route: GET /api/keys - Get all keys
-  if (url.pathname === "/api/keys" && req.method === "GET") {
-    return await handleGetKeys();
-  }
+    // Route: GET /api/keys - Get all keys
+    if (url.pathname === "/api/keys" && req.method === "GET") {
+        return await handleGetKeys();
+    }
 
-  // Route: POST /api/keys - Add key(s)
-  if (url.pathname === "/api/keys" && req.method === "POST") {
-    return await handleAddKeys(req);
-  }
+    // Route: POST /api/keys - Add key(s)
+    if (url.pathname === "/api/keys" && req.method === "POST") {
+        return await handleAddKeys(req);
+    }
 
-  // Route: POST /api/keys/batch-delete - Batch delete keys
-  if (url.pathname === "/api/keys/batch-delete" && req.method === "POST") {
-    return await handleBatchDeleteKeys(req);
-  }
+    // Route: POST /api/keys/batch-delete - Batch delete keys
+    if (url.pathname === "/api/keys/batch-delete" && req.method === "POST") {
+        return await handleBatchDeleteKeys(req);
+    }
 
-  // Route: POST /api/keys/export - Export keys with password
-  if (url.pathname === "/api/keys/export" && req.method === "POST") {
-    return await handleExportKeys(req);
-  }
+    // Route: POST /api/keys/export - Export keys with password
+    if (url.pathname === "/api/keys/export" && req.method === "POST") {
+        return await handleExportKeys(req);
+    }
 
-  // Route: GET /api/auth/check - Check if password is required
-  if (url.pathname === "/api/auth/check" && req.method === "GET") {
-    return handleAuthCheck();
-  }
+    // Route: GET /api/auth/check - Check if password is required
+    if (url.pathname === "/api/auth/check" && req.method === "GET") {
+        return handleAuthCheck();
+    }
 
-  // Route: POST /api/auth/verify - Verify access password
-  if (url.pathname === "/api/auth/verify" && req.method === "POST") {
-    return await handleAuthVerify(req);
-  }
+    // Route: POST /api/auth/verify - Verify access password
+    if (url.pathname === "/api/auth/verify" && req.method === "POST") {
+        return await handleAuthVerify(req);
+    }
 
-  // Route: DELETE /api/keys/:id - Delete a key
-  if (url.pathname.startsWith("/api/keys/") && req.method === "DELETE") {
-    return await handleDeleteKey(url.pathname);
-  }
+    // Route: DELETE /api/keys/:id - Delete a key
+    if (url.pathname.startsWith("/api/keys/") && req.method === "DELETE") {
+        return await handleDeleteKey(url.pathname);
+    }
 
-  // Route: POST /api/keys/:id/refresh - Refresh single key
-  if (url.pathname.match(/^\/api\/keys\/.+\/refresh$/) && req.method === "POST") {
-    return await handleRefreshSingleKey(url.pathname);
-  }
+    // Route: POST /api/keys/:id/refresh - Refresh single key
+    if (url.pathname.match(/^\/api\/keys\/.+\/refresh$/) && req.method === "POST") {
+        return await handleRefreshSingleKey(url.pathname);
+    }
 
-  // 404 for all other routes
-  return new Response("Not Found", { status: 404 });
+    // 404 for all other routes
+    return new Response("Not Found", { status: 404 });
 }
 
 // ==================== Server Initialization ====================
 
 async function startServer() {
-  console.log("Initializing server...");
+    console.log("Initializing server...");
 
-  // Perform an initial data fetch on startup and WAIT for it to complete
-  console.log("Performing initial data fetch...");
-  await autoRefreshData();
-  console.log("Initial data loaded successfully.");
+    // Perform an initial data fetch on startup and WAIT for it to complete
+    console.log("Performing initial data fetch...");
+    await autoRefreshData();
+    console.log("Initial data loaded successfully.");
 
-  // Set up the interval for subsequent refreshes
-  setInterval(autoRefreshData, CONFIG.AUTO_REFRESH_INTERVAL_SECONDS * 1000);
+    // Set up the interval for subsequent refreshes
+    setInterval(autoRefreshData, CONFIG.AUTO_REFRESH_INTERVAL_SECONDS * 1000);
 
-  console.log(`Server running on http://localhost:${CONFIG.PORT}`);
-  serve(handler, { port: CONFIG.PORT });
+    console.log(`Server running on http://localhost:${CONFIG.PORT}`);
+    serve(handler, { port: CONFIG.PORT });
 }
 
 startServer();
