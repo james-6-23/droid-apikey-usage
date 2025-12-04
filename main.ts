@@ -236,7 +236,6 @@ const HTML_CONTENT = `
         }
 
         .header-left .update-time { 
-            font-family: var(--font-mono);
             font-size: 14px; 
             color: var(--text-secondary); 
             display: flex;
@@ -331,11 +330,10 @@ const HTML_CONTENT = `
         }
 
         .stat-value { 
-            font-family: var(--font-mono);
             font-size: 36px; 
             font-weight: 600; 
             color: var(--text);
-            letter-spacing: -1px;
+            letter-spacing: -0.5px;
         }
 
         .stat-value.gradient { color: var(--success); }
@@ -430,6 +428,40 @@ const HTML_CONTENT = `
         .status-dot.active { background: var(--success); }
         .status-dot.warning { background: var(--warning); }
         .status-dot.danger { background: var(--danger); }
+
+        /* Checkbox */
+        .checkbox-cell {
+            width: 40px;
+            text-align: center;
+        }
+        .row-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+        .select-actions {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+        }
+        .select-actions.show {
+            display: flex;
+        }
+        .select-count {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        tr.selected {
+            background: rgba(88, 166, 255, 0.1) !important;
+        }
+        .row-refreshing {
+            opacity: 0.6;
+            pointer-events: none;
+        }
 
         /* Progress Bar */
         .progress-track {
@@ -678,6 +710,11 @@ const HTML_CONTENT = `
         </div>
 
         <div class="table-container">
+            <div class="select-actions" id="selectActions">
+                <span class="select-count"><span id="selectedCount">0</span> 项已选择</span>
+                <button class="btn btn-sm btn-danger" onclick="deleteSelectedKeys()">删除选中</button>
+                <button class="btn btn-sm" onclick="clearSelection()">取消选择</button>
+            </div>
             <div class="table-wrapper">
                 <div id="tableContent">
                     <div class="loading-container">
@@ -833,6 +870,7 @@ const HTML_CONTENT = `
                 <table>
                     <thead>
                         <tr>
+                            <th class="checkbox-cell"><input type="checkbox" class="row-checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
                             <th>API Key</th>
                             <th>有效期</th>
                             <th style="text-align: right;">总额度</th>
@@ -854,7 +892,8 @@ const HTML_CONTENT = `
             sortedData.forEach(item => {
                 if (item.error) {
                     tableHTML += \`
-                        <tr>
+                        <tr id="key-row-\${item.id}" data-key-id="\${item.id}">
+                            <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="\${item.id}" onchange="updateSelection()"></td>
                             <td>
                                 <div class="key-cell">
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
@@ -865,7 +904,7 @@ const HTML_CONTENT = `
                             </td>
                             <td colspan="5" style="color: var(--danger); font-weight: 500;">\${item.error}</td>
                             <td style="text-align: center;">
-                                <button class="btn btn-sm" onclick="refreshSingleKey('\${item.id}')">↻</button>
+                                <button class="btn btn-sm" onclick="refreshSingleKey('\${item.id}', this)">↻</button>
                                 <button class="btn btn-sm btn-danger" style="margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')">×</button>
                             </td>
                         </tr>\`;
@@ -876,7 +915,8 @@ const HTML_CONTENT = `
                     const statusDot = remaining > 0 ? 'active' : 'danger';
                     
                     tableHTML += \`
-                        <tr id="key-row-\${item.id}">
+                        <tr id="key-row-\${item.id}" data-key-id="\${item.id}">
+                            <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="\${item.id}" onchange="updateSelection()"></td>
                             <td>
                                 <div class="key-cell">
                                     <span class="status-dot \${statusDot}"></span>
@@ -887,9 +927,9 @@ const HTML_CONTENT = `
                                 </div>
                             </td>
                             <td style="color: var(--text-secondary);">\${item.startDate} ~ \${item.endDate}</td>
-                            <td style="text-align: right; font-family: var(--font-mono);">\${formatNumber(item.totalAllowance)}</td>
-                            <td style="text-align: right; font-family: var(--font-mono);">\${formatNumber(item.orgTotalTokensUsed)}</td>
-                            <td style="text-align: right; font-family: var(--font-mono); color: \${remaining > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: 600;">\${formatNumber(remaining)}</td>
+                            <td style="text-align: right;">\${formatNumber(item.totalAllowance)}</td>
+                            <td style="text-align: right;">\${formatNumber(item.orgTotalTokensUsed)}</td>
+                            <td style="text-align: right; color: \${remaining > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: 600;">\${formatNumber(remaining)}</td>
                             <td>
                                 <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px;">
                                     <span>\${formatPercentage(ratio)}</span>
@@ -897,7 +937,7 @@ const HTML_CONTENT = `
                                 <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>
                             </td>
                             <td style="text-align: center; white-space: nowrap;">
-                                <button class="btn btn-sm" onclick="refreshSingleKey('\${item.id}')" title="刷新">↻</button>
+                                <button class="btn btn-sm" onclick="refreshSingleKey('\${item.id}', this)" title="刷新">↻</button>
                                 <button class="btn btn-sm btn-danger" style="margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')" title="删除">×</button>
                             </td>
                         </tr>\`;
@@ -927,6 +967,141 @@ const HTML_CONTENT = `
             }).catch(err => {
                 console.error('复制失败:', err);
             });
+        }
+
+        // Refresh Single Key (独立刷新，不触发全局刷新)
+        async function refreshSingleKey(keyId, btn) {
+            const row = document.getElementById('key-row-' + keyId);
+            if (!row) return;
+
+            // 显示加载状态
+            row.classList.add('row-refreshing');
+            const originalBtnText = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span>';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/keys/' + keyId + '/refresh', {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error('刷新失败');
+                }
+
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    // 更新本地缓存数据
+                    if (currentApiData && currentApiData.data) {
+                        const index = currentApiData.data.findIndex(item => item.id === keyId);
+                        if (index !== -1) {
+                            currentApiData.data[index] = result.data;
+                        }
+                    }
+                    // 重新渲染表格
+                    displayData(currentApiData);
+                }
+            } catch (error) {
+                console.error('刷新 Key 失败:', error);
+                alert('刷新失败: ' + error.message);
+            } finally {
+                row.classList.remove('row-refreshing');
+                btn.innerHTML = originalBtnText;
+                btn.disabled = false;
+            }
+        }
+
+        // 多选功能
+        let selectedKeys = new Set();
+
+        function toggleSelectAll(checkbox) {
+            const checkboxes = document.querySelectorAll('tbody .row-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = checkbox.checked;
+                const row = cb.closest('tr');
+                if (checkbox.checked) {
+                    selectedKeys.add(cb.dataset.id);
+                    row.classList.add('selected');
+                } else {
+                    selectedKeys.delete(cb.dataset.id);
+                    row.classList.remove('selected');
+                }
+            });
+            updateSelectionUI();
+        }
+
+        function updateSelection() {
+            selectedKeys.clear();
+            const checkboxes = document.querySelectorAll('tbody .row-checkbox:checked');
+            checkboxes.forEach(cb => {
+                selectedKeys.add(cb.dataset.id);
+                cb.closest('tr').classList.add('selected');
+            });
+            
+            // 更新未选中行的样式
+            document.querySelectorAll('tbody .row-checkbox:not(:checked)').forEach(cb => {
+                cb.closest('tr').classList.remove('selected');
+            });
+
+            // 更新全选框状态
+            const allCheckboxes = document.querySelectorAll('tbody .row-checkbox');
+            const selectAllCheckbox = document.getElementById('selectAll');
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = allCheckboxes.length > 0 && checkboxes.length === allCheckboxes.length;
+                selectAllCheckbox.indeterminate = checkboxes.length > 0 && checkboxes.length < allCheckboxes.length;
+            }
+
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            const selectActions = document.getElementById('selectActions');
+            const selectedCount = document.getElementById('selectedCount');
+            
+            if (selectedKeys.size > 0) {
+                selectActions.classList.add('show');
+                selectedCount.textContent = selectedKeys.size;
+            } else {
+                selectActions.classList.remove('show');
+            }
+        }
+
+        function clearSelection() {
+            selectedKeys.clear();
+            document.querySelectorAll('.row-checkbox').forEach(cb => {
+                cb.checked = false;
+                const row = cb.closest('tr');
+                if (row) row.classList.remove('selected');
+            });
+            updateSelectionUI();
+        }
+
+        async function deleteSelectedKeys() {
+            if (selectedKeys.size === 0) return;
+            
+            if (!confirm(\`确定要删除选中的 \${selectedKeys.size} 个 Key 吗？\`)) return;
+
+            const idsToDelete = Array.from(selectedKeys);
+            
+            try {
+                const response = await fetch('/api/keys/batch-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: idsToDelete })
+                });
+
+                if (response.ok) {
+                    alert(\`成功删除 \${idsToDelete.length} 个 Key\`);
+                    clearSelection();
+                    loadData();
+                } else {
+                    const result = await response.json();
+                    alert('删除失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                alert('网络错误: ' + error.message);
+            }
         }
 
         // Modal and Key Management Functions
