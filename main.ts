@@ -785,7 +785,7 @@ const HTML_CONTENT = `
             }
         }
   
-        function loadData(retryCount = 0) {
+        function loadData(retryCount = 0, isInitial = false) {
             if (isLoading) return;
             isLoading = true;
 
@@ -793,21 +793,31 @@ const HTML_CONTENT = `
             const refreshIcon = document.getElementById('refreshIcon');
             const refreshFab = document.getElementById('refreshFab');
             const updateTime = document.getElementById('updateTime');
+            const tableContent = document.getElementById('tableContent');
 
-            // Show loading state
+            // Show loading state (只更新按钮和时间，不清空表格)
             spinner.style.display = 'inline-block';  
             refreshIcon.style.display = 'none';
             refreshFab.style.pointerEvents = 'none';
-            updateTime.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> 刷新中...';
+            
+            // 如果是初次加载或表格为空，显示加载提示
+            if (isInitial || !currentApiData) {
+                updateTime.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> 加载中...';
+            } else {
+                // 刷新时只更新时间区域
+                updateTime.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> 刷新中...';
+            }
   
             fetch('/api/data?t=' + new Date().getTime())  
                 .then(response => {  
                     if (response.status === 503 && retryCount < 5) {
                         console.log(\`Server initializing, retrying in 2 seconds... (attempt \${retryCount + 1}/5)\`);
-                        document.getElementById('tableContent').innerHTML = \`<div class="loading-container"><div class="loading-spinner-lg"></div><div>服务器正在初始化数据... (尝试 \${retryCount + 1}/5)</div></div>\`;
+                        if (!currentApiData) {
+                            tableContent.innerHTML = \`<div class="loading-container"><div class="loading-spinner-lg"></div><div>服务器正在初始化数据... (尝试 \${retryCount + 1}/5)</div></div>\`;
+                        }
                         setTimeout(() => {
                             isLoading = false;
-                            loadData(retryCount + 1);
+                            loadData(retryCount + 1, isInitial);
                         }, 2000);
                         return null;
                     }
@@ -819,8 +829,10 @@ const HTML_CONTENT = `
                     if (data.error) throw new Error(data.error);  
                     displayData(data);  
                 })  
-                .catch(error => {  
-                    document.getElementById('tableContent').innerHTML = \`<div class="loading-container" style="color: var(--danger)">加载失败: \${error.message}</div>\`;  
+                .catch(error => {
+                    if (!currentApiData) {
+                        tableContent.innerHTML = \`<div class="loading-container" style="color: var(--danger)">加载失败: \${error.message}</div>\`;
+                    }
                     document.getElementById('updateTime').innerHTML = '<span style="color: var(--danger);">加载失败</span>';  
                 })  
                 .finally(() => {
@@ -952,7 +964,7 @@ const HTML_CONTENT = `
   
         document.addEventListener('DOMContentLoaded', () => {
             initTheme();
-            loadData();
+            loadData(0, true);  // 初次加载
         });
 
         // Copy Key Function
@@ -997,23 +1009,57 @@ const HTML_CONTENT = `
                         if (index !== -1) currentApiData.data[index] = data;
                     }
                     
-                    // 只更新该行的数字（不触发任何其他变化）
+                    // 只更新该行的数字（带平滑动画）
                     if (!data.error) {
                         const cells = row.querySelectorAll('td');
                         const remaining = Math.max(0, data.totalAllowance - data.orgTotalTokensUsed);
                         const ratio = data.usedRatio || 0;
                         const progressClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
                         
-                        // cells[0] = checkbox, cells[1] = API Key, 不更新
-                        cells[2].textContent = data.startDate + ' ~ ' + data.endDate;
-                        cells[3].textContent = formatNumber(data.totalAllowance);
-                        cells[4].textContent = formatNumber(data.orgTotalTokensUsed);
-                        cells[5].textContent = formatNumber(remaining);
-                        cells[5].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
-                        cells[6].innerHTML = '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;"><span>' + formatPercentage(ratio) + '</span></div><div class="progress-track"><div class="progress-fill ' + progressClass + '" style="width:' + Math.min(ratio * 100, 100) + '%"></div></div>';
+                        // 平滑更新函数
+                        const smoothUpdate = (cell, newValue) => {
+                            cell.style.transition = 'opacity 0.15s ease';
+                            cell.style.opacity = '0.5';
+                            setTimeout(() => {
+                                if (typeof newValue === 'string') {
+                                    cell.textContent = newValue;
+                                } else {
+                                    cell.innerHTML = newValue;
+                                }
+                                cell.style.opacity = '1';
+                            }, 150);
+                        };
                         
+                        // cells[0] = checkbox, cells[1] = API Key, 不更新
+                        smoothUpdate(cells[2], data.startDate + ' ~ ' + data.endDate);
+                        smoothUpdate(cells[3], formatNumber(data.totalAllowance));
+                        smoothUpdate(cells[4], formatNumber(data.orgTotalTokensUsed));
+                        
+                        setTimeout(() => {
+                            cells[5].style.transition = 'opacity 0.15s ease, color 0.3s ease';
+                            cells[5].style.opacity = '0.5';
+                            setTimeout(() => {
+                                cells[5].textContent = formatNumber(remaining);
+                                cells[5].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
+                                cells[5].style.opacity = '1';
+                            }, 150);
+                        }, 0);
+                        
+                        setTimeout(() => {
+                            cells[6].style.transition = 'opacity 0.15s ease';
+                            cells[6].style.opacity = '0.5';
+                            setTimeout(() => {
+                                cells[6].innerHTML = '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;"><span>' + formatPercentage(ratio) + '</span></div><div class="progress-track"><div class="progress-fill ' + progressClass + '" style="width:' + Math.min(ratio * 100, 100) + '%;transition:width 0.3s ease"></div></div>';
+                                cells[6].style.opacity = '1';
+                            }, 150);
+                        }, 0);
+                        
+                        // 状态点平滑更新
                         const statusDot = row.querySelector('.status-dot');
-                        if (statusDot) statusDot.className = 'status-dot ' + (remaining > 0 ? 'active' : 'danger');
+                        if (statusDot) {
+                            statusDot.style.transition = 'background 0.3s ease';
+                            statusDot.className = 'status-dot ' + (remaining > 0 ? 'active' : 'danger');
+                        }
                     }
                 }
             } catch (error) {
