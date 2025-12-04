@@ -539,11 +539,13 @@ const HTML_CONTENT = `
 
         /* Animations */
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
         .spinner { 
             width: 20px; height: 20px; 
             border: 2px solid var(--border); 
-            border-top-color: var(--text); 
+            border-top-color: var(--accent); 
             border-radius: 50%; 
             animation: spin 0.8s linear infinite; 
         }
@@ -557,10 +559,78 @@ const HTML_CONTENT = `
         .loading-spinner-lg {
             width: 40px; height: 40px;
             border: 3px solid var(--border);
-            border-top-color: var(--text);
+            border-top-color: var(--accent);
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin: 0 auto 24px;
+        }
+
+        /* Fade transition for content */
+        .fade-in {
+            animation: fadeIn 0.3s ease;
+        }
+        .slide-in {
+            animation: slideIn 0.4s ease;
+        }
+
+        /* Theme Toggle */
+        .theme-toggle {
+            position: fixed;
+            bottom: 100px;
+            right: 32px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+        .theme-toggle:hover {
+            background: var(--bg-tertiary);
+            color: var(--text);
+            border-color: var(--text-muted);
+        }
+
+        /* Light Theme */
+        body.light-theme {
+            --bg: #ffffff;
+            --bg-secondary: #f6f8fa;
+            --bg-tertiary: #eaeef2;
+            --text: #1f2328;
+            --text-secondary: #656d76;
+            --text-muted: #8c959f;
+            --border: #d0d7de;
+            --accent: #0969da;
+            --success: #1a7f37;
+            --danger: #cf222e;
+            --warning: #9a6700;
+        }
+
+        body.light-theme .fab {
+            background: var(--accent);
+            color: white;
+        }
+        body.light-theme .fab:hover {
+            background: #0860ca;
+        }
+
+        body.light-theme .modal-content {
+            background: var(--bg);
+        }
+
+        body.light-theme .key-badge {
+            background: var(--bg-tertiary);
+        }
+
+        body.light-theme .copy-btn {
+            background: var(--bg);
         }
 
         /* Responsive */
@@ -574,6 +644,7 @@ const HTML_CONTENT = `
             .stat-value { font-size: 28px; }
             th, td { padding: 16px; font-size: 14px; }
             .fab { bottom: 20px; right: 20px; width: 48px; height: 48px; }
+            .theme-toggle { bottom: 80px; right: 20px; width: 40px; height: 40px; }
         }
     </style>  
 </head>  
@@ -618,8 +689,14 @@ const HTML_CONTENT = `
         </div>
     </div>
 
-    <button class="fab" onclick="loadData()" title="刷新数据">
-        <span id="refreshIcon">↻</span>
+    <!-- Theme Toggle Button -->
+    <button class="theme-toggle" onclick="toggleTheme()" title="切换主题" id="themeToggle">
+        <span id="themeIcon">☀️</span>
+    </button>
+
+    <!-- Refresh FAB -->
+    <button class="fab" onclick="loadData()" title="刷新数据" id="refreshFab">
+        <span id="refreshIcon" style="display: inline-block; transition: transform 0.3s;">↻</span>
         <span class="spinner" style="display: none;" id="spinner"></span>
     </button>
 
@@ -648,21 +725,53 @@ const HTML_CONTENT = `
     <script>
         // Global variable to store current API data
         let currentApiData = null;
+        let isLoading = false;
         const formatNumber = (num) => num ? new Intl.NumberFormat('en-US').format(num) : '0';
         const formatPercentage = (ratio) => ratio ? (ratio * 100).toFixed(2) + '%' : '0.00%';  
+
+        // Theme Toggle Function
+        function toggleTheme() {
+            const body = document.body;
+            const themeIcon = document.getElementById('themeIcon');
+            const isLight = body.classList.toggle('light-theme');
+            themeIcon.textContent = isLight ? '🌙' : '☀️';
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+        }
+
+        // Initialize theme from localStorage
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const themeIcon = document.getElementById('themeIcon');
+            if (savedTheme === 'light') {
+                document.body.classList.add('light-theme');
+                themeIcon.textContent = '🌙';
+            }
+        }
   
-        function loadData(retryCount = 0) {  
+        function loadData(retryCount = 0) {
+            if (isLoading) return;
+            isLoading = true;
+
             const spinner = document.getElementById('spinner');  
-            const refreshIcon = document.getElementById('refreshIcon');  
+            const refreshIcon = document.getElementById('refreshIcon');
+            const refreshFab = document.getElementById('refreshFab');
+            const updateTime = document.getElementById('updateTime');
+
+            // Show loading state
             spinner.style.display = 'inline-block';  
-            refreshIcon.style.display = 'none';  
+            refreshIcon.style.display = 'none';
+            refreshFab.style.pointerEvents = 'none';
+            updateTime.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> 刷新中...';
   
             fetch('/api/data?t=' + new Date().getTime())  
                 .then(response => {  
                     if (response.status === 503 && retryCount < 5) {
                         console.log(\`Server initializing, retrying in 2 seconds... (attempt \${retryCount + 1}/5)\`);
                         document.getElementById('tableContent').innerHTML = \`<div class="loading-container"><div class="loading-spinner-lg"></div><div>服务器正在初始化数据... (尝试 \${retryCount + 1}/5)</div></div>\`;
-                        setTimeout(() => loadData(retryCount + 1), 2000);
+                        setTimeout(() => {
+                            isLoading = false;
+                            loadData(retryCount + 1);
+                        }, 2000);
                         return null;
                     }
                     if (!response.ok) throw new Error('无法加载数据: ' + response.statusText);  
@@ -675,11 +784,13 @@ const HTML_CONTENT = `
                 })  
                 .catch(error => {  
                     document.getElementById('tableContent').innerHTML = \`<div class="loading-container" style="color: var(--danger)">加载失败: \${error.message}</div>\`;  
-                    document.getElementById('updateTime').textContent = "加载失败";  
+                    document.getElementById('updateTime').innerHTML = '<span style="color: var(--danger);">加载失败</span>';  
                 })  
-                .finally(() => {  
+                .finally(() => {
+                    isLoading = false;
                     spinner.style.display = 'none';  
-                    refreshIcon.style.display = 'inline';  
+                    refreshIcon.style.display = 'inline-block';
+                    refreshFab.style.pointerEvents = 'auto';
                 });  
         }  
   
@@ -695,23 +806,23 @@ const HTML_CONTENT = `
 
             const statsCards = document.getElementById('statsCards');  
             statsCards.innerHTML = \`  
-                <div class="stat-card">
-                    <div class="stat-icon" style="color: #8b5cf6; background: rgba(139, 92, 246, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M15 9.5c-1-1-2.5-1-3.5 0s-1 2.5 0 3.5 2.5 1 3.5 0M9 14.5c1 1 2.5 1 3.5 0"/></svg></div>
+                <div class="stat-card slide-in" style="animation-delay: 0ms;">
+                    <div class="stat-icon" style="color: var(--accent); background: rgba(88, 166, 255, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M15 9.5c-1-1-2.5-1-3.5 0s-1 2.5 0 3.5 2.5 1 3.5 0M9 14.5c1 1 2.5 1 3.5 0"/></svg></div>
                     <div class="stat-label">总计额度</div>
                     <div class="stat-value">\${formatNumber(totalAllowance)}</div>
                 </div>  
-                <div class="stat-card">
-                    <div class="stat-icon" style="color: #06b6d4; background: rgba(6, 182, 212, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></div>
+                <div class="stat-card slide-in" style="animation-delay: 50ms;">
+                    <div class="stat-icon" style="color: var(--warning); background: rgba(210, 153, 34, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></div>
                     <div class="stat-label">已使用</div>
                     <div class="stat-value">\${formatNumber(totalUsed)}</div>
                 </div>  
-                <div class="stat-card">
-                    <div class="stat-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
+                <div class="stat-card slide-in" style="animation-delay: 100ms;">
+                    <div class="stat-icon" style="color: var(--success); background: rgba(63, 185, 80, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
                     <div class="stat-label">剩余额度</div>
                     <div class="stat-value gradient">\${formatNumber(totalRemaining)}</div>
                 </div>  
-                <div class="stat-card">
-                    <div class="stat-icon" style="color: #f59e0b; background: rgba(245, 158, 11, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+                <div class="stat-card slide-in" style="animation-delay: 150ms;">
+                    <div class="stat-icon" style="color: var(--danger); background: rgba(248, 81, 73, 0.1);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
                     <div class="stat-label">使用率</div>
                     <div class="stat-value">\${formatPercentage(overallRatio)}</div>
                     <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(overallRatio * 100, 100)}%"></div></div>
@@ -794,10 +905,15 @@ const HTML_CONTENT = `
             });
 
             tableHTML += \`</tbody></table>\`; 
-            document.getElementById('tableContent').innerHTML = tableHTML;  
+            document.getElementById('tableContent').innerHTML = tableHTML;
+            // Add fade-in animation
+            document.getElementById('tableContent').classList.add('fade-in');
         }  
   
-        document.addEventListener('DOMContentLoaded', loadData);
+        document.addEventListener('DOMContentLoaded', () => {
+            initTheme();
+            loadData();
+        });
 
         // Copy Key Function
         function copyKey(key, btn) {
