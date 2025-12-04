@@ -176,322 +176,263 @@ const HTML_CONTENT = `
     <title>API 余额监控看板</title>  
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary: #00f2ff;
-            --primary-dim: rgba(0, 242, 255, 0.1);
-            --primary-glow: rgba(0, 242, 255, 0.4);
-            --secondary: #7000ff;
-            --secondary-glow: rgba(112, 0, 255, 0.4);
-            --success: #00ff9d;
-            --danger: #ff0055;
-            --warning: #ffcc00;
-            
-            --bg-dark: #050507;
-            --bg-panel: rgba(20, 20, 25, 0.6);
-            --bg-panel-hover: rgba(30, 30, 40, 0.8);
-            
-            --text-primary: #ffffff;
-            --text-secondary: #8b9bb4;
-            --text-dim: #4a5568;
-            
-            --border: rgba(255, 255, 255, 0.08);
-            --border-hover: rgba(255, 255, 255, 0.2);
-            
-            --font-main: 'Outfit', sans-serif;
-            --font-mono: 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
+            --bg: #000000;
+            --bg-secondary: #0a0a0a;
+            --bg-tertiary: #111111;
+            --text: #ffffff;
+            --text-secondary: #888888;
+            --text-muted: #555555;
+            --border: #222222;
+            --accent: #ffffff;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #eab308;
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body { 
-            font-family: var(--font-main); 
-            background-color: var(--bg-dark);
-            background-image: 
-                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                radial-gradient(circle at 50% 0%, rgba(112, 0, 255, 0.15), transparent 60%),
-                radial-gradient(circle at 80% 20%, rgba(0, 242, 255, 0.1), transparent 40%);
-            background-size: 40px 40px, 40px 40px, 100% 100%, 100% 100%;
-            background-attachment: fixed;
-            color: var(--text-primary);
+            font-family: var(--font-sans); 
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh; 
-            padding: 32px;
-            overflow-x: hidden;
+            padding: 48px;
+            line-height: 1.6;
         }
 
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
-        .container { 
-            max-width: 1600px; 
-            margin: 0 auto; 
-            animation: fadeIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
+        .container { max-width: 1400px; margin: 0 auto; }
 
         /* Header */
         .header { 
-            background: rgba(10, 10, 15, 0.6);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border);
-            border-radius: 16px; 
-            padding: 24px 32px; 
-            margin-bottom: 32px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             flex-wrap: wrap;
-            gap: 20px;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 0 40px rgba(0,0,0,0.5);
-        }
-
-        .header::after {
-            content: '';
-            position: absolute;
-            bottom: 0; left: 0; width: 100%; height: 1px;
-            background: linear-gradient(90deg, transparent, var(--primary), transparent);
-            opacity: 0.5;
+            gap: 32px;
+            margin-bottom: 48px;
+            padding-bottom: 32px;
+            border-bottom: 1px solid var(--border);
         }
 
         .header-left h1 { 
-            font-size: 24px; 
+            font-size: 32px; 
             font-weight: 600; 
-            letter-spacing: 1px;
-            color: white;
-            margin-bottom: 6px;
+            color: var(--text);
+            margin-bottom: 8px;
             display: flex;
             align-items: center;
-            gap: 12px;
-            text-transform: uppercase;
-        }
-        
-        .header-left h1 svg {
-            filter: drop-shadow(0 0 8px var(--primary));
+            gap: 16px;
+            letter-spacing: -0.5px;
         }
 
         .header-left .update-time { 
             font-family: var(--font-mono);
-            font-size: 12px; 
+            font-size: 14px; 
             color: var(--text-secondary); 
             display: flex;
             align-items: center;
-            gap: 8px;
-            opacity: 0.8;
+            gap: 10px;
         }
 
         .header-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 
-        /* Tech Buttons */
+        /* Buttons */
         .btn { 
-            background: rgba(255, 255, 255, 0.03); 
+            background: transparent; 
             color: var(--text-secondary); 
             border: 1px solid var(--border); 
-            border-radius: 4px; 
-            padding: 8px 20px; 
-            font-size: 12px; 
-            font-weight: 600;
-            font-family: var(--font-main);
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            border-radius: 8px; 
+            padding: 12px 24px; 
+            font-size: 14px; 
+            font-weight: 500;
+            font-family: var(--font-sans);
             cursor: pointer; 
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            position: relative;
-            overflow: hidden;
         }
 
         .btn:hover { 
-            color: white;
-            border-color: var(--text-secondary);
-            background: rgba(255, 255, 255, 0.08);
-            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            border-color: var(--text-muted);
+            background: var(--bg-tertiary);
         }
-
-        .btn:active { transform: translateY(1px); }
 
         .btn-primary { 
-            background: rgba(0, 242, 255, 0.05);
-            color: var(--primary);
-            border-color: rgba(0, 242, 255, 0.3);
+            background: var(--text);
+            color: var(--bg);
+            border-color: var(--text);
         }
         .btn-primary:hover { 
-            background: rgba(0, 242, 255, 0.15);
-            color: #fff;
-            border-color: var(--primary);
-            box-shadow: 0 0 20px var(--primary-glow);
-            text-shadow: 0 0 8px var(--primary-glow);
+            background: var(--text-secondary);
+            border-color: var(--text-secondary);
         }
 
-        .btn-success { 
-            color: var(--success); 
-            border-color: rgba(0, 255, 157, 0.3); 
-            background: rgba(0, 255, 157, 0.05);
-        }
-        .btn-success:hover { 
-            background: rgba(0, 255, 157, 0.15);
-            border-color: var(--success);
-            color: #fff;
-            box-shadow: 0 0 20px rgba(0, 255, 157, 0.4);
+        .btn-success { color: var(--success); border-color: var(--success); }
+        .btn-success:hover { background: rgba(34, 197, 94, 0.1); }
+
+        .btn-danger { color: var(--danger); border-color: var(--danger); }
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.1); }
+
+        .btn-sm {
+            padding: 8px 12px;
+            font-size: 13px;
+            border-radius: 6px;
         }
 
-        .btn-danger { 
-            color: var(--danger); 
-            border-color: rgba(255, 0, 85, 0.3); 
-            background: rgba(255, 0, 85, 0.05); 
-            border-color: rgba(239, 68, 68, 0.2); 
-        }
-        .btn-danger:hover { 
-            background: rgba(255, 0, 85, 0.15);
-            border-color: var(--danger);
-            color: #fff;
-            box-shadow: 0 0 20px rgba(255, 0, 85, 0.4);
+        .btn-icon {
+            padding: 8px;
+            min-width: 36px;
+            justify-content: center;
         }
 
         /* Stats Cards */
         .stats-grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
+            grid-template-columns: repeat(4, 1fr); 
             gap: 24px; 
-            margin-bottom: 32px;
+            margin-bottom: 48px;
         }
 
         .stat-card { 
-            background: var(--bg-panel);
-            backdrop-filter: blur(12px);
+            background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 12px; 
-            padding: 24px; 
-            position: relative;
-            transition: all 0.4s ease;
-            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+            padding: 28px;
         }
 
-        .stat-card:hover { 
-            transform: translateY(-4px); 
-            border-color: var(--primary);
-            box-shadow: 0 0 30px rgba(0, 242, 255, 0.15), inset 0 0 20px rgba(0, 242, 255, 0.05);
-        }
-        
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 2px;
-            background: linear-gradient(90deg, transparent, var(--primary), transparent);
-            opacity: 0;
-            transition: opacity 0.4s;
-        }
-        .stat-card:hover::before { opacity: 1; }
+        .stat-card:hover { border-color: var(--text-muted); }
 
         .stat-icon { 
-            width: 40px; height: 40px;
-            border-radius: 8px;
+            width: 44px; height: 44px;
+            border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
-            margin-bottom: 16px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 20px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
         }
 
         .stat-label { 
-            font-size: 12px; 
+            font-size: 14px; 
             color: var(--text-secondary); 
-            text-transform: uppercase; 
-            letter-spacing: 2px; 
-            font-weight: 600;
+            font-weight: 500;
             margin-bottom: 8px;
         }
 
         .stat-value { 
             font-family: var(--font-mono);
             font-size: 36px; 
-            font-weight: 700; 
-            color: white;
+            font-weight: 600; 
+            color: var(--text);
             letter-spacing: -1px;
-            text-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
 
-        .stat-value.gradient {
-            background: linear-gradient(135deg, #fff, var(--primary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            filter: drop-shadow(0 0 10px rgba(0, 242, 255, 0.3));
-        }
+        .stat-value.gradient { color: var(--success); }
 
         /* Table */
         .table-container { 
-            background: var(--bg-card);
-            backdrop-filter: blur(16px);
-            border: var(--glass-border);
-            border-radius: 24px; 
-            padding: 24px;
-            box-shadow: var(--shadow);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px; 
             overflow: hidden;
         }
 
         .table-wrapper { overflow-x: auto; }
 
-        table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        table { width: 100%; border-collapse: collapse; }
 
         th { 
             text-align: left; 
-            padding: 16px 20px; 
+            padding: 20px 24px; 
             color: var(--text-secondary); 
-            font-size: 12px; 
+            font-size: 13px; 
             font-weight: 600; 
-            text-transform: uppercase; 
-            letter-spacing: 1px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: var(--bg-tertiary);
             border-bottom: 1px solid var(--border);
         }
 
         td { 
-            padding: 20px; 
-            color: var(--text-primary); 
-            font-size: 14px; 
+            padding: 20px 24px; 
+            color: var(--text); 
+            font-size: 15px; 
             border-bottom: 1px solid var(--border);
-            transition: background 0.2s;
+            vertical-align: middle;
         }
 
-        tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
+        tbody tr:hover { background: var(--bg-tertiary); }
         tbody tr:last-child td { border-bottom: none; }
 
+        .key-cell {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
         .key-badge { 
-            font-family: 'SF Mono', 'Fira Code', monospace; 
-            background: rgba(0, 0, 0, 0.3); 
-            padding: 6px 12px; 
-            border-radius: 8px; 
-            font-size: 12px; 
-            color: #cbd5e1;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            display: inline-block;
-            max-width: 200px;
+            font-family: var(--font-mono); 
+            background: var(--bg-tertiary); 
+            padding: 8px 14px; 
+            border-radius: 6px; 
+            font-size: 14px; 
+            color: var(--text);
+            border: 1px solid var(--border);
+            max-width: 280px;
             overflow: hidden;
             text-overflow: ellipsis;
-            vertical-align: middle;
+            white-space: nowrap;
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .copy-btn:hover {
+            color: var(--text);
+            border-color: var(--text-muted);
+            background: var(--bg);
+        }
+        .copy-btn.copied {
+            color: var(--success);
+            border-color: var(--success);
         }
 
         .status-dot {
             display: inline-block;
             width: 8px; height: 8px;
             border-radius: 50%;
-            margin-right: 8px;
+            margin-right: 10px;
         }
-        .status-dot.active { background: var(--success); box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
-        .status-dot.warning { background: var(--warning); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
-        .status-dot.danger { background: var(--danger); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+        .status-dot.active { background: var(--success); }
+        .status-dot.warning { background: var(--warning); }
+        .status-dot.danger { background: var(--danger); }
 
         /* Progress Bar */
         .progress-track {
             width: 100%;
             height: 6px;
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--border);
             border-radius: 3px;
             overflow: hidden;
             margin-top: 8px;
@@ -499,13 +440,13 @@ const HTML_CONTENT = `
         .progress-fill {
             height: 100%;
             border-radius: 3px;
-            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: width 0.5s ease;
         }
-        .progress-low { background: linear-gradient(90deg, #10b981, #34d399); }
-        .progress-medium { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
-        .progress-high { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .progress-low { background: var(--success); }
+        .progress-medium { background: var(--warning); }
+        .progress-high { background: var(--danger); }
 
-        /* Floating Action Button */
+        /* FAB */
         .fab {
             position: fixed;
             bottom: 32px;
@@ -513,20 +454,19 @@ const HTML_CONTENT = `
             width: 56px;
             height: 56px;
             border-radius: 50%;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white;
+            background: var(--text);
+            color: var(--bg);
             border: none;
             cursor: pointer;
-            box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 24px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             z-index: 100;
         }
-        .fab:hover { transform: translateY(-4px) rotate(180deg); box-shadow: 0 12px 32px rgba(139, 92, 246, 0.6); }
-        .fab:active { transform: translateY(-2px); }
+        .fab:hover { transform: scale(1.1); background: var(--text-secondary); }
 
         /* Modal */
         .modal { 
@@ -534,27 +474,20 @@ const HTML_CONTENT = `
             position: fixed; 
             top: 0; left: 0; 
             width: 100%; height: 100%; 
-            background: rgba(0, 0, 0, 0.8); 
-            backdrop-filter: blur(8px);
+            background: rgba(0, 0, 0, 0.9); 
             z-index: 1000; 
             align-items: center; 
             justify-content: center;
-            opacity: 0;
-            transition: opacity 0.3s ease;
         }
-        .modal.show { display: flex; opacity: 1; }
+        .modal.show { display: flex; }
         
         .modal-content { 
-            background: #1e293b; 
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 24px; 
+            background: var(--bg-secondary); 
+            border: 1px solid var(--border);
+            border-radius: 16px; 
             width: 90%; 
             max-width: 600px; 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            transform: scale(0.95);
-            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
-        .modal.show .modal-content { transform: scale(1); }
 
         .modal-header { 
             padding: 24px 32px; 
@@ -563,68 +496,81 @@ const HTML_CONTENT = `
             justify-content: space-between; 
             align-items: center; 
         }
-        .modal-header h2 { font-size: 20px; font-weight: 600; color: white; }
+        .modal-header h2 { font-size: 20px; font-weight: 600; }
 
         .close-btn { 
             background: transparent; 
             border: none; 
             color: var(--text-secondary); 
-            font-size: 24px; 
+            font-size: 28px; 
             cursor: pointer; 
-            transition: color 0.2s;
+            line-height: 1;
         }
-        .close-btn:hover { color: white; }
+        .close-btn:hover { color: var(--text); }
 
         .modal-body { padding: 32px; }
 
-        .form-group label { display: block; margin-bottom: 10px; color: var(--text-primary); font-size: 14px; font-weight: 500; }
+        .form-group label { 
+            display: block; 
+            margin-bottom: 12px; 
+            color: var(--text); 
+            font-size: 15px; 
+            font-weight: 500; 
+        }
         .form-group textarea { 
             width: 100%; 
             padding: 16px; 
-            background: rgba(0, 0, 0, 0.2);
+            background: var(--bg);
             border: 1px solid var(--border); 
-            border-radius: 12px; 
-            color: white;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 13px;
+            border-radius: 8px; 
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 14px;
             min-height: 200px;
             resize: vertical;
-            transition: border-color 0.2s;
         }
-        .form-group textarea:focus { outline: none; border-color: var(--primary); }
+        .form-group textarea:focus { 
+            outline: none; 
+            border-color: var(--text-muted); 
+        }
 
-        /* Loading & Animations */
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        /* Animations */
         @keyframes spin { to { transform: rotate(360deg); } }
         
         .spinner { 
             width: 20px; height: 20px; 
-            border: 2px solid rgba(255,255,255,0.3); 
-            border-top-color: white; 
+            border: 2px solid var(--border); 
+            border-top-color: var(--text); 
             border-radius: 50%; 
             animation: spin 0.8s linear infinite; 
         }
 
-        .loading-container { text-align: center; padding: 60px; color: var(--text-secondary); }
+        .loading-container { 
+            text-align: center; 
+            padding: 80px; 
+            color: var(--text-secondary); 
+            font-size: 16px;
+        }
         .loading-spinner-lg {
-            width: 48px; height: 48px;
-            border: 4px solid rgba(139, 92, 246, 0.1);
-            border-top-color: var(--primary);
+            width: 40px; height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--text);
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin: 0 auto 16px;
+            margin: 0 auto 24px;
         }
 
         /* Responsive */
+        @media (max-width: 1200px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
         @media (max-width: 768px) {
-            body { padding: 16px; }
-            .header { padding: 20px; flex-direction: column; align-items: stretch; }
-            .header-actions { justify-content: stretch; }
-            .header-actions .btn { flex: 1; justify-content: center; }
+            body { padding: 24px; }
+            .header { flex-direction: column; align-items: stretch; }
             .stats-grid { grid-template-columns: 1fr; }
-            .table-container { padding: 0; border-radius: 16px; }
-            th, td { padding: 16px; }
-            .fab { bottom: 20px; right: 20px; }
+            .stat-value { font-size: 28px; }
+            th, td { padding: 16px; font-size: 14px; }
+            .fab { bottom: 20px; right: 20px; width: 48px; height: 48px; }
         }
     </style>  
 </head>  
@@ -632,10 +578,7 @@ const HTML_CONTENT = `
     <div class="container">
         <div class="header">
             <div class="header-left">
-                <h1>
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-                    API 监控看板
-                </h1>
+                <h1>API 监控看板</h1>
                 <div class="update-time" id="updateTime">
                     <span class="spinner" style="width: 14px; height: 14px; border-width: 1px;"></span> 正在连接...
                 </div>
@@ -791,11 +734,18 @@ const HTML_CONTENT = `
                 if (item.error) {
                     tableHTML += \`
                         <tr>
-                            <td><span class="key-badge" title="\${item.key}">\${item.key}</span></td>
+                            <td>
+                                <div class="key-cell">
+                                    <span class="key-badge" title="\${item.key}">\${item.key}</span>
+                                    <button class="copy-btn" onclick="copyKey('\${item.key}', this)" title="复制">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                                    </button>
+                                </div>
+                            </td>
                             <td colspan="5" style="color: var(--danger); font-weight: 500;">\${item.error}</td>
                             <td style="text-align: center;">
-                                <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="refreshSingleKey('\${item.id}')">↻</button>
-                                <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px; margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')">×</button>
+                                <button class="btn btn-sm" onclick="refreshSingleKey('\${item.id}')">↻</button>
+                                <button class="btn btn-sm btn-danger" style="margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')">×</button>
                             </td>
                         </tr>\`;
                 } else {
@@ -807,24 +757,27 @@ const HTML_CONTENT = `
                     tableHTML += \`
                         <tr id="key-row-\${item.id}">
                             <td>
-                                <div style="display: flex; align-items: center;">
+                                <div class="key-cell">
                                     <span class="status-dot \${statusDot}"></span>
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
+                                    <button class="copy-btn" onclick="copyKey('\${item.key}', this)" title="复制">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                                    </button>
                                 </div>
                             </td>
-                            <td style="font-size: 13px; color: var(--text-secondary);">\${item.startDate} <br> \${item.endDate}</td>
-                            <td style="text-align: right; font-family: 'SF Mono', monospace;">\${formatNumber(item.totalAllowance)}</td>
-                            <td style="text-align: right; font-family: 'SF Mono', monospace;">\${formatNumber(item.orgTotalTokensUsed)}</td>
-                            <td style="text-align: right; font-family: 'SF Mono', monospace; color: \${remaining > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: 700;">\${formatNumber(remaining)}</td>
+                            <td style="color: var(--text-secondary);">\${item.startDate} ~ \${item.endDate}</td>
+                            <td style="text-align: right; font-family: var(--font-mono);">\${formatNumber(item.totalAllowance)}</td>
+                            <td style="text-align: right; font-family: var(--font-mono);">\${formatNumber(item.orgTotalTokensUsed)}</td>
+                            <td style="text-align: right; font-family: var(--font-mono); color: \${remaining > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: 600;">\${formatNumber(remaining)}</td>
                             <td>
-                                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px;">
                                     <span>\${formatPercentage(ratio)}</span>
                                 </div>
                                 <div class="progress-track"><div class="progress-fill \${progressClass}" style="width: \${Math.min(ratio * 100, 100)}%"></div></div>
                             </td>
                             <td style="text-align: center; white-space: nowrap;">
-                                <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="refreshSingleKey('\${item.id}')" title="刷新">↻</button>
-                                <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px; margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')" title="删除">×</button>
+                                <button class="btn btn-sm" onclick="refreshSingleKey('\${item.id}')" title="刷新">↻</button>
+                                <button class="btn btn-sm btn-danger" style="margin-left: 6px;" onclick="deleteKeyFromTable('\${item.id}')" title="删除">×</button>
                             </td>
                         </tr>\`;
                 }
@@ -835,6 +788,20 @@ const HTML_CONTENT = `
         }  
   
         document.addEventListener('DOMContentLoaded', loadData);
+
+        // Copy Key Function
+        function copyKey(key, btn) {
+            navigator.clipboard.writeText(key).then(() => {
+                btn.classList.add('copied');
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
+                setTimeout(() => {
+                    btn.classList.remove('copied');
+                    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+                }, 2000);
+            }).catch(err => {
+                console.error('复制失败:', err);
+            });
+        }
 
         // Modal and Key Management Functions
         function openManageModal() {
