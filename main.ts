@@ -1216,7 +1216,7 @@ const HTML_CONTENT = `
 
             sortedData.forEach(item => {
                 const rawKey = item.fullKey || item.key || '';
-                const copyValue = rawKey.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const copyValue = JSON.stringify(rawKey);
                 if (item.error) {
                     tableHTML += \`
                         <tr id="key-row-\${item.id}" data-key-id="\${item.id}">
@@ -1224,7 +1224,7 @@ const HTML_CONTENT = `
                             <td>
                                 <div class="key-cell">
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
-                                    <button class="copy-btn" onclick="copyKey('\${copyValue}', this)" title="复制">
+                                    <button class="copy-btn" onclick="copyKey(\${copyValue}, this)" title="复制">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                                     </button>
                                 </div>
@@ -1248,7 +1248,7 @@ const HTML_CONTENT = `
                                 <div class="key-cell">
                                     <span class="status-dot \${statusDot}"></span>
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
-                                    <button class="copy-btn" onclick="copyKey('\${copyValue}', this)" title="复制">
+                                    <button class="copy-btn" onclick="copyKey(\${copyValue}, this)" title="复制">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                                     </button>
                                 </div>
