@@ -574,6 +574,63 @@ const HTML_CONTENT = `
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideInRight { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes slideOutRight { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
+
+        /* Toast Styles */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10001;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+        .toast {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(12px);
+            animation: slideInRight 0.3s ease;
+            pointer-events: auto;
+            min-width: 280px;
+            max-width: 400px;
+        }
+        .toast.hiding {
+            animation: slideOutRight 0.3s ease forwards;
+        }
+        .toast-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .toast-success .toast-icon { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .toast-error .toast-icon { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .toast-info .toast-icon { background: rgba(59, 130, 246, 0.2); color: var(--accent); }
+        .toast-content {
+            flex: 1;
+        }
+        .toast-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+        .toast-message {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
         
         .spinner { 
             width: 20px; height: 20px; 
@@ -717,6 +774,7 @@ const HTML_CONTENT = `
         <div class="table-container">
             <div class="select-actions" id="selectActions">
                 <span class="select-count"><span id="selectedCount">0</span> 项已选择</span>
+                <button class="btn btn-sm btn-primary" onclick="copySelectedKeys()">复制选中</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteSelectedKeys()">删除选中</button>
                 <button class="btn btn-sm" onclick="clearSelection()">取消选择</button>
             </div>
@@ -730,6 +788,9 @@ const HTML_CONTENT = `
             </div>
         </div>
     </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
 
     <!-- Theme Toggle Button -->
     <button class="theme-toggle" onclick="toggleTheme()" title="切换主题" id="themeToggle">
@@ -837,6 +898,33 @@ const HTML_CONTENT = `
             }
         }
 
+        // Toast 提示函数
+        function showToast(title, message, type = 'info', duration = 3000) {
+            const container = document.getElementById('toastContainer');
+            const icons = {
+                success: '✓',
+                error: '✕',
+                info: 'ℹ'
+            };
+            
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-' + type;
+            toast.innerHTML = \`
+                <div class="toast-icon">\${icons[type] || icons.info}</div>
+                <div class="toast-content">
+                    <div class="toast-title">\${title}</div>
+                    \${message ? '<div class="toast-message">' + message + '</div>' : ''}
+                </div>
+            \`;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.add('hiding');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
         // Cookie 工具函数
         function setCookie(name, value, days) {
             const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
@@ -938,7 +1026,7 @@ const HTML_CONTENT = `
             resetCountdown();
             
             closeSettingsModal();
-            alert('设置已保存！自动刷新间隔: ' + clampedInterval + ' 秒');
+            showToast('设置已保存', '自动刷新间隔: ' + clampedInterval + ' 秒', 'success');
         }
 
         // 倒计时相关变量
@@ -1192,17 +1280,55 @@ const HTML_CONTENT = `
             initAutoRefresh();  // 初始化自动刷新
         });
 
-        // Copy Key Function
+        // Copy Key Function - 复制单个 Key
         function copyKey(key, btn) {
             navigator.clipboard.writeText(key).then(() => {
-                btn.classList.add('copied');
-                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
+                // 按钮变绿显示勾
+                btn.style.background = 'var(--success)';
+                btn.style.borderColor = 'var(--success)';
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+                
+                showToast('复制成功', key.substring(0, 10) + '...', 'success', 2000);
+                
+                // 1秒后恢复
                 setTimeout(() => {
-                    btn.classList.remove('copied');
+                    btn.style.background = '';
+                    btn.style.borderColor = '';
                     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
-                }, 2000);
+                }, 1000);
             }).catch(err => {
-                console.error('复制失败:', err);
+                showToast('复制失败', err.message, 'error');
+            });
+        }
+
+        // Copy Selected Keys - 复制选中的 Keys
+        function copySelectedKeys() {
+            if (selectedKeys.size === 0) {
+                showToast('未选择', '请先选择要复制的 Key', 'info');
+                return;
+            }
+            
+            // 从 currentApiData 中获取选中的 Key 值
+            const keysToMove = [];
+            if (currentApiData && currentApiData.data) {
+                currentApiData.data.forEach(item => {
+                    if (selectedKeys.has(item.id)) {
+                        keysToMove.push(item.key);
+                    }
+                });
+            }
+            
+            if (keysToMove.length === 0) {
+                showToast('复制失败', '未找到对应的 Key 数据', 'error');
+                return;
+            }
+            
+            const text = keysToMove.join('\\n');
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('复制成功', '已复制 ' + keysToMove.length + ' 个 Key 到剪贴板', 'success');
+                clearSelection();
+            }).catch(err => {
+                showToast('复制失败', err.message, 'error');
             });
         }
 
@@ -1381,15 +1507,15 @@ const HTML_CONTENT = `
                 });
 
                 if (response.ok) {
-                    alert(\`成功删除 \${idsToDelete.length} 个 Key\`);
+                    showToast('删除成功', '已删除 ' + idsToDelete.length + ' 个 Key', 'success');
                     clearSelection();
                     loadData();
                 } else {
                     const result = await response.json();
-                    alert('删除失败: ' + (result.error || '未知错误'));
+                    showToast('删除失败', result.error || '未知错误', 'error');
                 }
             } catch (error) {
-                alert('网络错误: ' + error.message);
+                showToast('网络错误', error.message, 'error');
             }
         }
 
@@ -1457,13 +1583,22 @@ const HTML_CONTENT = `
         }
 
         async function deleteAllKeys() {
-            if (!currentApiData) return alert('请先加载数据');
+            if (!currentApiData) {
+                showToast('提示', '请先加载数据', 'info');
+                return;
+            }
             const totalKeys = currentApiData.total_count;
-            if (totalKeys === 0) return alert('没有可删除的 Key');
+            if (totalKeys === 0) {
+                showToast('提示', '没有可删除的 Key', 'info');
+                return;
+            }
 
             if (!confirm(\`危险操作！\\n\\n确定要删除所有 \${totalKeys} 个 Key 吗？\\n此操作不可恢复！\`)) return;
             const secondConfirm = prompt('请输入 "确认删除" 以继续：');
-            if (secondConfirm !== '确认删除') return alert('操作已取消');
+            if (secondConfirm !== '确认删除') {
+                showToast('已取消', '操作已取消', 'info');
+                return;
+            }
 
             const deleteBtn = document.getElementById('deleteAllBtn');
             deleteBtn.disabled = true;
@@ -1480,13 +1615,13 @@ const HTML_CONTENT = `
 
                 const result = await response.json();
                 if (response.ok) {
-                    alert(\`成功删除 \${result.deleted || totalKeys} 个 Key\`);
+                    showToast('删除成功', '已删除 ' + (result.deleted || totalKeys) + ' 个 Key', 'success');
                     loadData();
                 } else {
-                    alert('删除失败: ' + (result.error || '未知错误'));
+                    showToast('删除失败', result.error || '未知错误', 'error');
                 }
             } catch (error) {
-                alert('网络错误: ' + error.message);
+                showToast('网络错误', error.message, 'error');
             } finally {
                 deleteBtn.disabled = false;
                 deleteBtn.innerHTML = originalHTML;
@@ -1494,14 +1629,20 @@ const HTML_CONTENT = `
         }
 
         async function deleteZeroBalanceKeys() {
-            if (!currentApiData) return alert('请先加载数据');
+            if (!currentApiData) {
+                showToast('提示', '请先加载数据', 'info');
+                return;
+            }
             const zeroBalanceKeys = currentApiData.data.filter(item => {
                 if (item.error) return false;
                 const remaining = Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
                 return remaining === 0;
             });
 
-            if (zeroBalanceKeys.length === 0) return alert('太棒了！没有找到余额为 0 的 Key');
+            if (zeroBalanceKeys.length === 0) {
+                showToast('太棒了！', '没有找到余额为 0 的 Key', 'success');
+                return;
+            }
             if (!confirm(\`清理确认\\n\\n发现 \${zeroBalanceKeys.length} 个余额为 0 的 Key\\n确定要删除吗？\`)) return;
 
             const deleteBtn = document.getElementById('deleteZeroBtn');
@@ -1517,13 +1658,13 @@ const HTML_CONTENT = `
                 });
                 const result = await response.json();
                 if (response.ok) {
-                    alert(\`成功清理 \${result.deleted || zeroBalanceKeys.length} 个无效 Key\`);
+                    showToast('清理成功', '已清理 ' + (result.deleted || zeroBalanceKeys.length) + ' 个无效 Key', 'success');
                     loadData();
                 } else {
-                    alert('清理失败: ' + (result.error || '未知错误'));
+                    showToast('清理失败', result.error || '未知错误', 'error');
                 }
             } catch (error) {
-                alert('网络错误: ' + error.message);
+                showToast('网络错误', error.message, 'error');
             } finally {
                 deleteBtn.disabled = false;
                 deleteBtn.innerHTML = originalHTML;
@@ -1563,9 +1704,9 @@ const HTML_CONTENT = `
                 });
                 const result = await response.json();
                 if (response.ok) {
-                    showMessage(\`成功导入 \${result.added} 个 Key\${result.skipped > 0 ? \`，跳过 \${result.skipped} 个重复\` : ''}\`);
                     document.getElementById('batchKeysInput').value = '';
                     closeManageModal();
+                    showToast('导入成功', '成功导入 ' + result.added + ' 个 Key' + (result.skipped > 0 ? '，跳过 ' + result.skipped + ' 个重复' : ''), 'success');
                     loadData();
                 } else {
                     showMessage(result.error || '批量导入失败', true);
@@ -1580,10 +1721,14 @@ const HTML_CONTENT = `
             try {
                 const response = await fetch(\`/api/keys/\${id}\`, { method: 'DELETE' });
                 const result = await response.json();
-                if (response.ok) loadData();
-                else alert('删除失败: ' + (result.error || '未知错误'));
+                if (response.ok) {
+                    showToast('删除成功', 'Key 已删除', 'success');
+                    loadData();
+                } else {
+                    showToast('删除失败', result.error || '未知错误', 'error');
+                }
             } catch (error) {
-                alert('网络错误: ' + error.message);
+                showToast('网络错误', error.message, 'error');
             }
         }
 
