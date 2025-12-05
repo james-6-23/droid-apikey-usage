@@ -80,13 +80,46 @@ class ServerState {
     private cachedData: AggregatedResponse | null = null;
     private lastError: string | null = null;
     private isUpdating = false;
+    // 追踪已删除的 key IDs，防止并发刷新时数据重新出现
+    private pendingDeletions: Set<string> = new Set();
 
     getData = () => this.cachedData;
     getError = () => this.lastError;
     isCurrentlyUpdating = () => this.isUpdating;
 
     updateCache(data: AggregatedResponse) {
-        this.cachedData = data;
+        // 过滤掉已删除的 keys（处理并发刷新问题）
+        if (this.pendingDeletions.size > 0) {
+            const deletedIds = this.pendingDeletions;
+            const filteredData = data.data.filter(item => !deletedIds.has(item.id));
+
+            // 重新计算统计值
+            let totalUsed = 0, totalAllowance = 0, totalRemaining = 0;
+            filteredData.forEach(item => {
+                if (!('error' in item)) {
+                    totalUsed += item.orgTotalTokensUsed || 0;
+                    totalAllowance += item.totalAllowance || 0;
+                    totalRemaining += Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
+                }
+            });
+
+            this.cachedData = {
+                ...data,
+                total_count: filteredData.length,
+                data: filteredData,
+                totals: {
+                    total_orgTotalTokensUsed: totalUsed,
+                    total_totalAllowance: totalAllowance,
+                    totalRemaining: totalRemaining
+                }
+            };
+
+            // 清空待删除列表（已经被过滤了）
+            this.pendingDeletions.clear();
+        } else {
+            this.cachedData = data;
+        }
+
         this.lastError = null;
         this.isUpdating = false;
     }
@@ -98,6 +131,40 @@ class ServerState {
 
     startUpdate() {
         this.isUpdating = true;
+    }
+
+    // 标记 keys 为已删除（增量更新缓存 + 记录到待删除列表）
+    removeKeysFromCache(idsToRemove: string[]) {
+        // 添加到待删除列表，确保后续刷新也会过滤这些 key
+        idsToRemove.forEach(id => this.pendingDeletions.add(id));
+
+        if (!this.cachedData) return;
+
+        const idsSet = new Set(idsToRemove);
+        const removedData = this.cachedData.data.filter(item => idsSet.has(item.id));
+
+        // 计算被移除的有效数据的统计值
+        let removedUsed = 0, removedAllowance = 0, removedRemaining = 0;
+        removedData.forEach(item => {
+            if (!('error' in item)) {
+                removedUsed += item.orgTotalTokensUsed || 0;
+                removedAllowance += item.totalAllowance || 0;
+                removedRemaining += Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
+            }
+        });
+
+        // 更新缓存
+        this.cachedData = {
+            ...this.cachedData,
+            total_count: this.cachedData.total_count - idsToRemove.length,
+            data: this.cachedData.data.filter(item => !idsSet.has(item.id)),
+            totals: {
+                total_orgTotalTokensUsed: this.cachedData.totals.total_orgTotalTokensUsed - removedUsed,
+                total_totalAllowance: this.cachedData.totals.total_totalAllowance - removedAllowance,
+                totalRemaining: this.cachedData.totals.totalRemaining - removedRemaining
+            },
+            update_time: this.cachedData.update_time
+        };
     }
 }
 
@@ -2008,24 +2075,38 @@ async function handleBatchImport(items: unknown[]): Promise<Response> {
     let added = 0, skipped = 0;
     const existingKeys = new Set((await getAllKeys()).map(k => k.key));
 
+    // 先对输入进行去重
+    const seenKeys = new Set<string>();
+    const keysToAdd: { id: string; key: string }[] = [];
+
     for (const item of items) {
         if (!item || typeof item !== 'object' || !('key' in item)) continue;
 
         const { key } = item as { key: string };
-        if (!key || existingKeys.has(key)) {
-            if (key) skipped++;
+        if (!key) continue;
+
+        // 检查是否已存在于数据库或本次导入已包含
+        if (existingKeys.has(key) || seenKeys.has(key)) {
+            skipped++;
             continue;
         }
 
-        const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        await addKey(id, key);
-        existingKeys.add(key);
+        seenKeys.add(key);
+        keysToAdd.push({
+            id: `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            key
+        });
         added++;
     }
 
-    if (added > 0) await autoRefreshData();
+    // 并行写入数据库（批量操作，速度快）
+    if (keysToAdd.length > 0) {
+        await Promise.all(keysToAdd.map(({ id, key }) => addKey(id, key)));
+        // 异步刷新数据，不等待完成
+        autoRefreshData();
+    }
 
-    return createJsonResponse({ success: true, added, skipped })
+    return createJsonResponse({ success: true, added, skipped });
 }
 
 async function handleSingleKeyAdd(body: unknown): Promise<Response> {
@@ -2039,7 +2120,8 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
 
     const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     await addKey(id, key);
-    await autoRefreshData();
+    // 异步刷新数据，不等待完成
+    autoRefreshData();
 
     return createJsonResponse({ success: true });
 }
@@ -2049,7 +2131,8 @@ async function handleDeleteKey(pathname: string): Promise<Response> {
     if (!id) return createErrorResponse("Key ID is required", 400);
 
     await deleteKey(id);
-    await autoRefreshData();
+    // 直接更新缓存（增量更新，无需完整刷新）
+    serverState.removeKeysFromCache([id]);
 
     return createJsonResponse({ success: true });
 }
@@ -2062,7 +2145,8 @@ async function handleBatchDeleteKeys(req: Request): Promise<Response> {
         }
 
         await Promise.all(ids.map(id => deleteKey(id).catch(() => { })));
-        await autoRefreshData();
+        // 直接更新缓存（增量更新，无需完整刷新）
+        serverState.removeKeysFromCache(ids);
 
         return createJsonResponse({ success: true, deleted: ids.length });
     } catch (error) {
