@@ -2023,9 +2023,9 @@ async function handleBatchImport(items: unknown[]): Promise<Response> {
         added++;
     }
 
-    if (added > 0) autoRefreshData();
+    if (added > 0) await autoRefreshData();
 
-    return createJsonResponse({ success: true, added, skipped });
+    return createJsonResponse({ success: true, added, skipped })
 }
 
 async function handleSingleKeyAdd(body: unknown): Promise<Response> {
@@ -2039,7 +2039,7 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
 
     const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     await addKey(id, key);
-    autoRefreshData();
+    await autoRefreshData();
 
     return createJsonResponse({ success: true });
 }
@@ -2049,7 +2049,7 @@ async function handleDeleteKey(pathname: string): Promise<Response> {
     if (!id) return createErrorResponse("Key ID is required", 400);
 
     await deleteKey(id);
-    autoRefreshData();
+    await autoRefreshData();
 
     return createJsonResponse({ success: true });
 }
@@ -2062,7 +2062,7 @@ async function handleBatchDeleteKeys(req: Request): Promise<Response> {
         }
 
         await Promise.all(ids.map(id => deleteKey(id).catch(() => { })));
-        autoRefreshData();
+        await autoRefreshData();
 
         return createJsonResponse({ success: true, deleted: ids.length });
     } catch (error) {
