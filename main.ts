@@ -88,10 +88,10 @@ class ServerState {
     isCurrentlyUpdating = () => this.isUpdating;
 
     updateCache(data: AggregatedResponse) {
-        // 过滤掉已删除的 keys（处理并发刷新问题）
+        // 始终过滤掉已删除的 keys（处理并发刷新问题）
         if (this.pendingDeletions.size > 0) {
-            const deletedIds = this.pendingDeletions;
-            const filteredData = data.data.filter(item => !deletedIds.has(item.id));
+            const newDataIds = new Set(data.data.map(item => item.id));
+            const filteredData = data.data.filter(item => !this.pendingDeletions.has(item.id));
 
             // 重新计算统计值
             let totalUsed = 0, totalAllowance = 0, totalRemaining = 0;
@@ -114,8 +114,13 @@ class ServerState {
                 }
             };
 
-            // 清空待删除列表（已经被过滤了）
-            this.pendingDeletions.clear();
+            // 只移除那些确实不在新数据中的 key（说明数据库已经删除了）
+            // 这样即使有多个并发刷新，也能正确过滤
+            this.pendingDeletions.forEach(id => {
+                if (!newDataIds.has(id)) {
+                    this.pendingDeletions.delete(id);
+                }
+            });
         } else {
             this.cachedData = data;
         }
@@ -886,7 +891,7 @@ const HTML_CONTENT = `
                         <textarea id="batchKeysInput" placeholder="支持格式：&#10;fk-xxxxxxxxxxxxx&#10;my-id:fk-xxxxxxxxxxxxx"></textarea>
                     </div>
                     <div style="display: flex; gap: 12px; margin-top: 24px;">
-                        <button type="submit" class="btn btn-primary" style="flex: 1; justify-content: center;">开始导入</button>
+                        <button type="submit" id="importBtn" class="btn btn-primary" style="flex: 1; justify-content: center;">开始导入</button>
                         <button type="button" class="btn" style="background: rgba(255,255,255,0.1);" onclick="document.getElementById('batchKeysInput').value='';">清空</button>
                     </div>
                 </form>
@@ -1778,6 +1783,12 @@ const HTML_CONTENT = `
 
             if (keysToImport.length === 0) return showMessage('没有有效的 Key 可以导入', true);
 
+            // 显示导入中动画
+            const importBtn = document.getElementById('importBtn');
+            importBtn.disabled = true;
+            const originalText = importBtn.innerHTML;
+            importBtn.innerHTML = '<span class="spinner" style="width:16px;height:16px;border-width:2px;"></span> 导入中...';
+
             try {
                 const response = await fetch('/api/keys', {
                     method: 'POST',
@@ -1795,6 +1806,9 @@ const HTML_CONTENT = `
                 }
             } catch (error) {
                 showMessage('网络错误: ' + error.message, true);
+            } finally {
+                importBtn.disabled = false;
+                importBtn.innerHTML = originalText;
             }
         }
 
@@ -2102,8 +2116,8 @@ async function handleBatchImport(items: unknown[]): Promise<Response> {
     // 并行写入数据库（批量操作，速度快）
     if (keysToAdd.length > 0) {
         await Promise.all(keysToAdd.map(({ id, key }) => addKey(id, key)));
-        // 异步刷新数据，不等待完成
-        autoRefreshData();
+        // 等待刷新完成，确保前端能获取最新数据
+        await autoRefreshData();
     }
 
     return createJsonResponse({ success: true, added, skipped });
@@ -2120,8 +2134,8 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
 
     const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     await addKey(id, key);
-    // 异步刷新数据，不等待完成
-    autoRefreshData();
+    // 等待刷新完成，确保前端能获取最新数据
+    await autoRefreshData();
 
     return createJsonResponse({ success: true });
 }
