@@ -83,7 +83,39 @@ class ServerState {
     // 追踪已删除的 key IDs，防止并发刷新时数据重新出现
     private pendingDeletions: Set<string> = new Set();
 
-    getData = () => this.cachedData;
+    // 获取数据时始终过滤掉已删除的keys
+    getData(): AggregatedResponse | null {
+        if (!this.cachedData) return null;
+        
+        // 始终在返回数据时过滤pendingDeletions，防止任何竞态条件
+        if (this.pendingDeletions.size === 0) {
+            return this.cachedData;
+        }
+        
+        const filteredData = this.cachedData.data.filter(item => !this.pendingDeletions.has(item.id));
+        
+        // 重新计算统计值
+        let totalUsed = 0, totalAllowance = 0, totalRemaining = 0;
+        filteredData.forEach(item => {
+            if (!('error' in item)) {
+                totalUsed += item.orgTotalTokensUsed || 0;
+                totalAllowance += item.totalAllowance || 0;
+                totalRemaining += Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
+            }
+        });
+        
+        return {
+            ...this.cachedData,
+            total_count: filteredData.length,
+            data: filteredData,
+            totals: {
+                total_orgTotalTokensUsed: totalUsed,
+                total_totalAllowance: totalAllowance,
+                totalRemaining: totalRemaining
+            }
+        };
+    }
+    
     getError = () => this.lastError;
     isCurrentlyUpdating = () => this.isUpdating;
 
@@ -945,6 +977,30 @@ const HTML_CONTENT = `
             </div>
         </div>
     </div>
+
+    <!-- Custom Confirm Modal -->
+    <div id="confirmModal" class="modal" style="z-index: 10002;">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header" style="border-bottom: none; padding-bottom: 0;">
+                <h2 id="confirmTitle" style="display: flex; align-items: center; gap: 12px;">
+                    <span id="confirmIcon" style="width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px;"></span>
+                    <span id="confirmTitleText">确认操作</span>
+                </h2>
+                <button class="close-btn" onclick="closeConfirmModal(false)">×</button>
+            </div>
+            <div class="modal-body" style="padding-top: 16px;">
+                <p id="confirmMessage" style="color: var(--text-secondary); font-size: 15px; line-height: 1.6; margin-bottom: 24px;"></p>
+                <div id="confirmInputContainer" style="display: none; margin-bottom: 20px;">
+                    <input type="text" id="confirmInput" placeholder="" style="width: 100%; padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px;">
+                    <small id="confirmInputHint" style="color: var(--text-muted); margin-top: 6px; display: block;"></small>
+                </div>
+                <div style="display: flex; gap: 12px;">
+                    <button id="confirmCancelBtn" class="btn" style="flex: 1; justify-content: center; background: var(--bg-tertiary);" onclick="closeConfirmModal(false)">取消</button>
+                    <button id="confirmOkBtn" class="btn btn-danger" style="flex: 1; justify-content: center;" onclick="closeConfirmModal(true)">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
   
     <script>
         // Global variable to store current API data
@@ -997,6 +1053,95 @@ const HTML_CONTENT = `
                 toast.classList.add('hiding');
                 setTimeout(() => toast.remove(), 300);
             }, duration);
+        }
+
+        // Custom Confirm Modal Functions
+        let confirmResolve = null;
+        let confirmRequiredInput = null;
+        
+        function showConfirm(options) {
+            return new Promise((resolve) => {
+                confirmResolve = resolve;
+                confirmRequiredInput = options.requiredInput || null;
+                
+                const modal = document.getElementById('confirmModal');
+                const iconEl = document.getElementById('confirmIcon');
+                const titleEl = document.getElementById('confirmTitleText');
+                const messageEl = document.getElementById('confirmMessage');
+                const okBtn = document.getElementById('confirmOkBtn');
+                const inputContainer = document.getElementById('confirmInputContainer');
+                const inputEl = document.getElementById('confirmInput');
+                const inputHint = document.getElementById('confirmInputHint');
+                
+                const type = options.type || 'warning';
+                if (type === 'danger') {
+                    iconEl.style.background = 'rgba(248, 81, 73, 0.15)';
+                    iconEl.style.color = 'var(--danger)';
+                    iconEl.textContent = '⚠️';
+                    okBtn.className = 'btn btn-danger';
+                } else if (type === 'warning') {
+                    iconEl.style.background = 'rgba(210, 153, 34, 0.15)';
+                    iconEl.style.color = 'var(--warning)';
+                    iconEl.textContent = '⚠️';
+                    okBtn.className = 'btn btn-danger';
+                } else {
+                    iconEl.style.background = 'rgba(88, 166, 255, 0.15)';
+                    iconEl.style.color = 'var(--accent)';
+                    iconEl.textContent = 'ℹ️';
+                    okBtn.className = 'btn btn-primary';
+                }
+                
+                titleEl.textContent = options.title || '确认操作';
+                messageEl.textContent = options.message || '确定要执行此操作吗？';
+                okBtn.textContent = options.confirmText || '确认';
+                okBtn.style.flex = '1';
+                okBtn.style.justifyContent = 'center';
+                
+                if (confirmRequiredInput) {
+                    inputContainer.style.display = 'block';
+                    inputEl.value = '';
+                    inputEl.placeholder = '请输入 "' + confirmRequiredInput + '"';
+                    inputHint.textContent = '请输入上方引号内的内容以确认操作';
+                    inputEl.onkeypress = (e) => {
+                        if (e.key === 'Enter') closeConfirmModal(true);
+                    };
+                } else {
+                    inputContainer.style.display = 'none';
+                }
+                
+                modal.classList.add('show');
+                
+                setTimeout(() => {
+                    if (confirmRequiredInput) {
+                        inputEl.focus();
+                    } else {
+                        okBtn.focus();
+                    }
+                }, 100);
+            });
+        }
+        
+        function closeConfirmModal(confirmed) {
+            const modal = document.getElementById('confirmModal');
+            const inputEl = document.getElementById('confirmInput');
+            
+            if (confirmed && confirmRequiredInput) {
+                if (inputEl.value !== confirmRequiredInput) {
+                    inputEl.style.borderColor = 'var(--danger)';
+                    inputEl.focus();
+                    showToast('输入错误', '请输入正确的确认文本', 'error', 2000);
+                    return;
+                }
+            }
+            
+            inputEl.style.borderColor = '';
+            modal.classList.remove('show');
+            
+            if (confirmResolve) {
+                confirmResolve(confirmed);
+                confirmResolve = null;
+            }
+            confirmRequiredInput = null;
         }
 
         // Cookie 工具函数
@@ -1585,7 +1730,13 @@ const HTML_CONTENT = `
         async function deleteSelectedKeys() {
             if (selectedKeys.size === 0) return;
             
-            if (!confirm(\`确定要删除选中的 \${selectedKeys.size} 个 Key 吗？\`)) return;
+            const confirmed = await showConfirm({
+                title: '删除确认',
+                message: '确定要删除选中的 ' + selectedKeys.size + ' 个 Key 吗？',
+                type: 'warning',
+                confirmText: '删除'
+            });
+            if (!confirmed) return;
 
             const idsToDelete = Array.from(selectedKeys);
             
@@ -1657,12 +1808,12 @@ const HTML_CONTENT = `
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-                    alert(\`成功导出 \${result.keys.length} 个Key\`);
+                    showToast('导出成功', '成功导出 ' + result.keys.length + ' 个 Key', 'success');
                 } else {
-                    alert('导出失败: ' + (result.error || '未知错误'));
+                    showToast('导出失败', result.error || '未知错误', 'error');
                 }
             } catch (error) {
-                alert('网络错误: ' + error.message);
+                showToast('网络错误', error.message, 'error');
             } finally {
                 exportBtn.disabled = false;
                 exportBtn.innerHTML = originalHTML;
@@ -1680,12 +1831,14 @@ const HTML_CONTENT = `
                 return;
             }
 
-            if (!confirm(\`危险操作！\\n\\n确定要删除所有 \${totalKeys} 个 Key 吗？\\n此操作不可恢复！\`)) return;
-            const secondConfirm = prompt('请输入 "确认删除" 以继续：');
-            if (secondConfirm !== '确认删除') {
-                showToast('已取消', '操作已取消', 'info');
-                return;
-            }
+            const confirmed = await showConfirm({
+                title: '危险操作',
+                message: '确定要删除所有 ' + totalKeys + ' 个 Key 吗？此操作不可恢复！',
+                type: 'danger',
+                confirmText: '删除全部',
+                requiredInput: '确认删除'
+            });
+            if (!confirmed) return;
 
             const deleteBtn = document.getElementById('deleteAllBtn');
             deleteBtn.disabled = true;
@@ -1730,7 +1883,13 @@ const HTML_CONTENT = `
                 showToast('太棒了！', '没有找到余额为 0 的 Key', 'success');
                 return;
             }
-            if (!confirm(\`清理确认\\n\\n发现 \${zeroBalanceKeys.length} 个余额为 0 的 Key\\n确定要删除吗？\`)) return;
+            const confirmed = await showConfirm({
+                title: '清理确认',
+                message: '发现 ' + zeroBalanceKeys.length + ' 个余额为 0 的 Key，确定要删除吗？',
+                type: 'warning',
+                confirmText: '清理'
+            });
+            if (!confirmed) return;
 
             const deleteBtn = document.getElementById('deleteZeroBtn');
             deleteBtn.disabled = true;
@@ -1813,7 +1972,13 @@ const HTML_CONTENT = `
         }
 
         async function deleteKeyFromTable(id) {
-            if (!confirm(\`确定要删除这个 Key 吗？\`)) return;
+            const confirmed = await showConfirm({
+                title: '删除确认',
+                message: '确定要删除这个 Key 吗？',
+                type: 'warning',
+                confirmText: '删除'
+            });
+            if (!confirmed) return;
             try {
                 const response = await fetch(\`/api/keys/\${id}\`, { method: 'DELETE' });
                 const result = await response.json();
@@ -1831,8 +1996,12 @@ const HTML_CONTENT = `
 
 
         document.addEventListener('click', (event) => {
-            const modal = document.getElementById('manageModal');
-            if (event.target === modal) closeManageModal();
+            const manageModal = document.getElementById('manageModal');
+            const settingsModal = document.getElementById('settingsModal');
+            const confirmModal = document.getElementById('confirmModal');
+            if (event.target === manageModal) closeManageModal();
+            if (event.target === settingsModal) closeSettingsModal();
+            if (event.target === confirmModal) closeConfirmModal(false);
         });
     </script>
 </body>
