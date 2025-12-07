@@ -457,16 +457,46 @@ const HTML_CONTENT = `
 
         table { width: 100%; border-collapse: collapse; }
 
-        th { 
-            text-align: left; 
-            padding: 20px 24px; 
-            color: var(--text-secondary); 
-            font-size: 13px; 
-            font-weight: 600; 
+        th {
+            text-align: left;
+            padding: 20px 24px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
             background: var(--bg-tertiary);
             border-bottom: 1px solid var(--border);
+        }
+
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s, color 0.2s;
+        }
+        th.sortable:hover {
+            background: var(--bg-secondary);
+            color: var(--text);
+        }
+        th.sortable.active {
+            color: var(--accent);
+        }
+        .sort-icon {
+            margin-left: 6px;
+            opacity: 0.4;
+            font-size: 12px;
+        }
+        .sort-icon.active {
+            opacity: 1;
+            color: var(--accent);
+        }
+        .th-content {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .th-content.right {
+            justify-content: flex-end;
         }
 
         td { 
@@ -479,6 +509,139 @@ const HTML_CONTENT = `
 
         tbody tr:hover { background: var(--bg-tertiary); }
         tbody tr:last-child td { border-bottom: none; }
+
+        /* Pagination */
+        .pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-secondary);
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .pagination-info {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        .pagination-info strong {
+            color: var(--text);
+        }
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .page-size-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        .page-size-selector select {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: var(--text);
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .page-size-selector select:hover {
+            border-color: var(--text-muted);
+        }
+        .page-size-selector select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .page-buttons {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .page-btn {
+            min-width: 36px;
+            height: 36px;
+            padding: 0 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .page-btn:hover:not(:disabled) {
+            background: var(--bg);
+            border-color: var(--text-muted);
+            color: var(--text);
+        }
+        .page-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+        .page-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .page-btn.nav-btn {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .page-ellipsis {
+            color: var(--text-muted);
+            padding: 0 8px;
+        }
+        .page-jump {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        .page-jump input {
+            width: 60px;
+            padding: 6px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 14px;
+            text-align: center;
+        }
+        .page-jump input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .page-jump input::-webkit-inner-spin-button,
+        .page-jump input::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        @media (max-width: 768px) {
+            .pagination-container {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .pagination-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .page-buttons {
+                order: -1;
+                width: 100%;
+                justify-content: center;
+                margin-bottom: 12px;
+            }
+        }
 
         .key-cell {
             display: flex;
@@ -861,6 +1024,9 @@ const HTML_CONTENT = `
                 <button class="btn btn-primary" onclick="openManageModal()">
                     <span>+</span> 导入 Key
                 </button>
+                <button class="btn btn-danger" onclick="openBatchDeleteModal()">
+                    <span>-</span> 批量删除
+                </button>
                 <button class="btn btn-success" onclick="exportKeys()" id="exportKeysBtn">
                     导出 Key
                 </button>
@@ -925,6 +1091,29 @@ const HTML_CONTENT = `
                     <div style="display: flex; gap: 12px; margin-top: 24px;">
                         <button type="submit" id="importBtn" class="btn btn-primary" style="flex: 1; justify-content: center;">开始导入</button>
                         <button type="button" class="btn" style="background: rgba(255,255,255,0.1);" onclick="document.getElementById('batchKeysInput').value='';">清空</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch Delete Modal -->
+    <div id="batchDeleteModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>批量删除 API Key</h2>
+                <button class="close-btn" onclick="closeBatchDeleteModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="batchDeleteMessage"></div>
+                <form onsubmit="batchDeleteKeysByValue(event)">
+                    <div class="form-group">
+                        <label>请输入要删除的 API Keys（每行一个）</label>
+                        <textarea id="batchDeleteKeysInput" placeholder="粘贴要删除的 Key，每行一个：&#10;fk-xxxxxxxxxxxxx&#10;fk-yyyyyyyyyyyyy"></textarea>
+                    </div>
+                    <div style="display: flex; gap: 12px; margin-top: 24px;">
+                        <button type="submit" id="batchDeleteBtn" class="btn btn-danger" style="flex: 1; justify-content: center;">确认删除</button>
+                        <button type="button" class="btn" style="background: rgba(255,255,255,0.1);" onclick="document.getElementById('batchDeleteKeysInput').value='';">清空</button>
                     </div>
                 </form>
             </div>
@@ -1007,7 +1196,349 @@ const HTML_CONTENT = `
         let currentApiData = null;
         let isLoading = false;
         const formatNumber = (num) => num ? new Intl.NumberFormat('en-US').format(num) : '0';
-        const formatPercentage = (ratio) => ratio ? (ratio * 100).toFixed(2) + '%' : '0.00%';  
+        const formatPercentage = (ratio) => ratio ? (ratio * 100).toFixed(2) + '%' : '0.00%';
+
+        // 排序状态
+        let sortConfig = {
+            column: 'remaining',  // 默认按剩余额度排序
+            direction: 'desc'     // desc = 降序, asc = 升序
+        };
+
+        // 分页状态
+        let paginationConfig = {
+            currentPage: 1,
+            pageSize: 20,         // 每页显示条数
+            pageSizeOptions: [10, 20, 50, 100]  // 可选的每页条数
+        };
+
+        // 获取分页后的数据
+        function getPaginatedData(data) {
+            const start = (paginationConfig.currentPage - 1) * paginationConfig.pageSize;
+            const end = start + paginationConfig.pageSize;
+            return data.slice(start, end);
+        }
+
+        // 计算总页数
+        function getTotalPages(totalItems) {
+            return Math.ceil(totalItems / paginationConfig.pageSize) || 1;
+        }
+
+        // 跳转到指定页
+        function goToPage(page) {
+            if (!currentApiData) return;
+            const totalPages = getTotalPages(currentApiData.data.length);
+
+            // 边界检查
+            if (page < 1) page = 1;
+            if (page > totalPages) page = totalPages;
+
+            if (paginationConfig.currentPage !== page) {
+                paginationConfig.currentPage = page;
+                savePaginationConfig();
+                displayData(currentApiData);
+            }
+        }
+
+        // 上一页
+        function prevPage() {
+            goToPage(paginationConfig.currentPage - 1);
+        }
+
+        // 下一页
+        function nextPage() {
+            goToPage(paginationConfig.currentPage + 1);
+        }
+
+        // 跳转到第一页
+        function firstPage() {
+            goToPage(1);
+        }
+
+        // 跳转到最后一页
+        function lastPage() {
+            if (!currentApiData) return;
+            const totalPages = getTotalPages(currentApiData.data.length);
+            goToPage(totalPages);
+        }
+
+        // 修改每页条数
+        function changePageSize(newSize) {
+            const oldSize = paginationConfig.pageSize;
+            paginationConfig.pageSize = parseInt(newSize);
+
+            // 计算新的当前页（尽量保持查看的数据位置不变）
+            const firstItemIndex = (paginationConfig.currentPage - 1) * oldSize;
+            paginationConfig.currentPage = Math.floor(firstItemIndex / paginationConfig.pageSize) + 1;
+
+            // 边界检查
+            if (currentApiData) {
+                const totalPages = getTotalPages(currentApiData.data.length);
+                if (paginationConfig.currentPage > totalPages) {
+                    paginationConfig.currentPage = totalPages;
+                }
+            }
+
+            savePaginationConfig();
+            if (currentApiData) {
+                displayData(currentApiData);
+            }
+        }
+
+        // 跳转到输入的页码
+        function jumpToPage(input) {
+            const page = parseInt(input.value);
+            if (!isNaN(page)) {
+                goToPage(page);
+            }
+            // 恢复显示当前实际页码
+            input.value = paginationConfig.currentPage;
+        }
+
+        // 保存分页配置到 localStorage
+        function savePaginationConfig() {
+            localStorage.setItem('paginationConfig', JSON.stringify({
+                pageSize: paginationConfig.pageSize
+                // 注意：不保存 currentPage，每次刷新从第一页开始
+            }));
+        }
+
+        // 初始化分页配置
+        function initPaginationConfig() {
+            const saved = localStorage.getItem('paginationConfig');
+            if (saved) {
+                try {
+                    const config = JSON.parse(saved);
+                    if (config.pageSize) {
+                        paginationConfig.pageSize = config.pageSize;
+                    }
+                } catch (e) {
+                    // 使用默认值
+                }
+            }
+        }
+
+        // 验证并修正当前页（用于删除操作后）
+        function validateCurrentPage() {
+            if (!currentApiData) return;
+            const totalPages = getTotalPages(currentApiData.data.length);
+            if (paginationConfig.currentPage > totalPages) {
+                paginationConfig.currentPage = Math.max(1, totalPages);
+            }
+        }
+
+        // 生成分页控件 HTML
+        function generatePaginationHTML(totalItems) {
+            const totalPages = getTotalPages(totalItems);
+            const currentPage = paginationConfig.currentPage;
+
+            // 生成页码按钮
+            let pageButtons = '';
+            const maxVisiblePages = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+            // 调整起始页
+            if (endPage - startPage + 1 < maxVisiblePages) {
+                startPage = Math.max(1, endPage - maxVisiblePages + 1);
+            }
+
+            // 第一页按钮
+            if (startPage > 1) {
+                pageButtons += \`<button class="page-btn" onclick="goToPage(1)">1</button>\`;
+                if (startPage > 2) {
+                    pageButtons += \`<span class="page-ellipsis">...</span>\`;
+                }
+            }
+
+            // 中间页码
+            for (let i = startPage; i <= endPage; i++) {
+                pageButtons += \`<button class="page-btn \${i === currentPage ? 'active' : ''}" onclick="goToPage(\${i})">\${i}</button>\`;
+            }
+
+            // 最后一页按钮
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    pageButtons += \`<span class="page-ellipsis">...</span>\`;
+                }
+                pageButtons += \`<button class="page-btn" onclick="goToPage(\${totalPages})">\${totalPages}</button>\`;
+            }
+
+            return \`
+                <div class="pagination-container">
+                    <div class="pagination-info">
+                        共 <strong>\${totalItems}</strong> 条记录，
+                        第 <strong>\${currentPage}</strong> / <strong>\${totalPages}</strong> 页
+                    </div>
+                    <div class="pagination-controls">
+                        <div class="page-size-selector">
+                            <label>每页</label>
+                            <select onchange="changePageSize(this.value)">
+                                \${paginationConfig.pageSizeOptions.map(size =>
+                                    \`<option value="\${size}" \${size === paginationConfig.pageSize ? 'selected' : ''}>\${size}</option>\`
+                                ).join('')}
+                            </select>
+                            <label>条</label>
+                        </div>
+                        <div class="page-buttons">
+                            <button class="page-btn nav-btn" onclick="firstPage()" \${currentPage === 1 ? 'disabled' : ''} title="第一页">«</button>
+                            <button class="page-btn nav-btn" onclick="prevPage()" \${currentPage === 1 ? 'disabled' : ''} title="上一页">‹</button>
+                            \${pageButtons}
+                            <button class="page-btn nav-btn" onclick="nextPage()" \${currentPage === totalPages ? 'disabled' : ''} title="下一页">›</button>
+                            <button class="page-btn nav-btn" onclick="lastPage()" \${currentPage === totalPages ? 'disabled' : ''} title="最后一页">»</button>
+                        </div>
+                        <div class="page-jump">
+                            <label>跳至</label>
+                            <input type="number" min="1" max="\${totalPages}" value="\${currentPage}"
+                                   onkeypress="if(event.key==='Enter')jumpToPage(this)"
+                                   onblur="jumpToPage(this)">
+                            <label>页</label>
+                        </div>
+                    </div>
+                </div>
+            \`;
+        }
+
+        // 排序函数
+        function sortData(data, column, direction) {
+            const sorted = [...data];
+
+            sorted.sort((a, b) => {
+                // 错误的 key 排在最后
+                const aHasError = 'error' in a;
+                const bHasError = 'error' in b;
+                if (aHasError && !bHasError) return 1;
+                if (!aHasError && bHasError) return -1;
+                if (aHasError && bHasError) return 0;
+
+                let aVal, bVal;
+
+                switch (column) {
+                    case 'key':
+                        aVal = a.key || '';
+                        bVal = b.key || '';
+                        break;
+                    case 'endDate':
+                        aVal = a.endDate ? new Date(a.endDate).getTime() : 0;
+                        bVal = b.endDate ? new Date(b.endDate).getTime() : 0;
+                        break;
+                    case 'totalAllowance':
+                        aVal = a.totalAllowance || 0;
+                        bVal = b.totalAllowance || 0;
+                        break;
+                    case 'used':
+                        aVal = a.orgTotalTokensUsed || 0;
+                        bVal = b.orgTotalTokensUsed || 0;
+                        break;
+                    case 'remaining':
+                        aVal = Math.max(0, (a.totalAllowance || 0) - (a.orgTotalTokensUsed || 0));
+                        bVal = Math.max(0, (b.totalAllowance || 0) - (b.orgTotalTokensUsed || 0));
+                        break;
+                    case 'usedRatio':
+                        aVal = a.usedRatio || 0;
+                        bVal = b.usedRatio || 0;
+                        break;
+                    default:
+                        return 0;
+                }
+
+                if (typeof aVal === 'string') {
+                    return direction === 'asc'
+                        ? aVal.localeCompare(bVal)
+                        : bVal.localeCompare(aVal);
+                }
+
+                return direction === 'asc' ? aVal - bVal : bVal - aVal;
+            });
+
+            return sorted;
+        }
+
+        // 切换排序
+        function toggleSort(column) {
+            if (sortConfig.column === column) {
+                // 同一列，切换方向
+                sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                // 不同列，默认降序
+                sortConfig.column = column;
+                sortConfig.direction = 'desc';
+            }
+
+            // 排序时重置到第一页（重要：避免排序后当前页超出范围或数据不连贯）
+            paginationConfig.currentPage = 1;
+
+            // 保存排序偏好到 localStorage
+            localStorage.setItem('sortConfig', JSON.stringify(sortConfig));
+
+            // 重新渲染表格
+            if (currentApiData) {
+                displayData(currentApiData);
+            }
+        }
+
+        // 获取排序图标
+        function getSortIcon(column) {
+            if (sortConfig.column !== column) {
+                return '<span class="sort-icon">⇅</span>';
+            }
+            return sortConfig.direction === 'asc'
+                ? '<span class="sort-icon active">↑</span>'
+                : '<span class="sort-icon active">↓</span>';
+        }
+
+        // 初始化排序配置
+        function initSortConfig() {
+            const saved = localStorage.getItem('sortConfig');
+            if (saved) {
+                try {
+                    sortConfig = JSON.parse(saved);
+                } catch (e) {
+                    // 使用默认值
+                }
+            }
+        }
+
+        // 计算距离到期还有多少天
+        function getDaysUntilExpiry(endDateStr) {
+            if (!endDateStr || endDateStr === 'N/A') return Infinity;
+            try {
+                const endDate = new Date(endDateStr);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                endDate.setHours(0, 0, 0, 0);
+                const diffTime = endDate.getTime() - today.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                return diffDays;
+            } catch {
+                return Infinity;
+            }
+        }
+
+        // 获取日期显示样式
+        function getDateStyle(endDateStr) {
+            const daysLeft = getDaysUntilExpiry(endDateStr);
+            if (daysLeft <= 0) {
+                return 'color: var(--danger); font-weight: 600;'; // 已过期
+            } else if (daysLeft <= 5) {
+                return 'color: var(--danger);'; // 5天内到期
+            } else if (daysLeft <= 10) {
+                return 'color: var(--warning);'; // 10天内到期
+            }
+            return 'color: var(--text-secondary);'; // 正常
+        }
+
+        // 获取到期提示文字
+        function getExpiryTooltip(endDateStr) {
+            const daysLeft = getDaysUntilExpiry(endDateStr);
+            if (daysLeft <= 0) {
+                return '已过期';
+            } else if (daysLeft === 1) {
+                return '明天到期';
+            } else if (daysLeft <= 5) {
+                return daysLeft + '天后到期';
+            }
+            return '';
+        }  
 
         // Theme Toggle Function
         function toggleTheme() {
@@ -1413,31 +1944,52 @@ const HTML_CONTENT = `
                     <thead>
                         <tr>
                             <th class="checkbox-cell"><input type="checkbox" class="row-checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
-                            <th>API Key</th>
-                            <th>有效期</th>
-                            <th style="text-align: right;">总额度</th>
-                            <th style="text-align: right;">已使用</th>
-                            <th style="text-align: right;">剩余</th>
-                            <th style="width: 200px;">使用率</th>
+                            <th class="sortable \${sortConfig.column === 'key' ? 'active' : ''}" onclick="toggleSort('key')">
+                                <div class="th-content">API Key \${getSortIcon('key')}</div>
+                            </th>
+                            <th class="sortable \${sortConfig.column === 'endDate' ? 'active' : ''}" onclick="toggleSort('endDate')">
+                                <div class="th-content">有效期 \${getSortIcon('endDate')}</div>
+                            </th>
+                            <th class="sortable \${sortConfig.column === 'totalAllowance' ? 'active' : ''}" onclick="toggleSort('totalAllowance')" style="text-align: right;">
+                                <div class="th-content right">总额度 \${getSortIcon('totalAllowance')}</div>
+                            </th>
+                            <th class="sortable \${sortConfig.column === 'used' ? 'active' : ''}" onclick="toggleSort('used')" style="text-align: right;">
+                                <div class="th-content right">已使用 \${getSortIcon('used')}</div>
+                            </th>
+                            <th class="sortable \${sortConfig.column === 'remaining' ? 'active' : ''}" onclick="toggleSort('remaining')" style="text-align: right;">
+                                <div class="th-content right">剩余 \${getSortIcon('remaining')}</div>
+                            </th>
+                            <th class="sortable \${sortConfig.column === 'usedRatio' ? 'active' : ''}" onclick="toggleSort('usedRatio')" style="width: 200px;">
+                                <div class="th-content">使用率 \${getSortIcon('usedRatio')}</div>
+                            </th>
                             <th style="text-align: center;">操作</th>
                         </tr>
                     </thead>
                     <tbody>\`;
 
-            // 按已使用额度从高到低排序
-            const sortedData = [...data.data].sort((a, b) => {
-                const usedA = a.orgTotalTokensUsed || 0;
-                const usedB = b.orgTotalTokensUsed || 0;
-                return usedB - usedA;
-            });
+            // 使用当前排序配置排序数据
+            const sortedData = sortData(data.data, sortConfig.column, sortConfig.direction);
 
-            sortedData.forEach(item => {
+            // 验证当前页是否有效
+            const totalPages = getTotalPages(sortedData.length);
+            if (paginationConfig.currentPage > totalPages) {
+                paginationConfig.currentPage = Math.max(1, totalPages);
+            }
+
+            // 分页：获取当前页的数据
+            const paginatedData = getPaginatedData(sortedData);
+
+            paginatedData.forEach(item => {
                 const rawKey = item.fullKey || item.key || '';
                 const copyValue = JSON.stringify(rawKey);
+                const isSelected = selectedKeys.has(item.id);
+                const selectedClass = isSelected ? 'selected' : '';
+                const checkedAttr = isSelected ? 'checked' : '';
+
                 if (item.error) {
                     tableHTML += \`
-                        <tr id="key-row-\${item.id}" data-key-id="\${item.id}">
-                            <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="\${item.id}" onchange="updateSelection()"></td>
+                        <tr id="key-row-\${item.id}" data-key-id="\${item.id}" class="\${selectedClass}">
+                            <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="\${item.id}" onchange="updateSelection()" \${checkedAttr}></td>
                             <td>
                                 <div class="key-cell">
                                     <span class="key-badge" title="\${item.key}">\${item.key}</span>
@@ -1457,10 +2009,10 @@ const HTML_CONTENT = `
                     const ratio = item.usedRatio || 0;
                     const progressClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
                     const statusDot = remaining > 0 ? 'active' : 'danger';
-                    
+
                     tableHTML += \`
-                        <tr id="key-row-\${item.id}" data-key-id="\${item.id}">
-                            <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="\${item.id}" onchange="updateSelection()"></td>
+                        <tr id="key-row-\${item.id}" data-key-id="\${item.id}" class="\${selectedClass}">
+                            <td class="checkbox-cell"><input type="checkbox" class="row-checkbox" data-id="\${item.id}" onchange="updateSelection()" \${checkedAttr}></td>
                             <td>
                                 <div class="key-cell">
                                     <span class="status-dot \${statusDot}"></span>
@@ -1470,7 +2022,7 @@ const HTML_CONTENT = `
                                     </button>
                                 </div>
                             </td>
-                            <td style="color: var(--text-secondary);">\${item.startDate} ~ \${item.endDate}</td>
+                            <td style="\${getDateStyle(item.endDate)}" title="\${getExpiryTooltip(item.endDate)}">\${item.startDate} ~ \${item.endDate}\${getExpiryTooltip(item.endDate) ? ' ⚠️' : ''}</td>
                             <td style="text-align: right;">\${formatNumber(item.totalAllowance)}</td>
                             <td style="text-align: right;">\${formatNumber(item.orgTotalTokensUsed)}</td>
                             <td style="text-align: right; color: \${remaining > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: 600;">\${formatNumber(remaining)}</td>
@@ -1488,14 +2040,30 @@ const HTML_CONTENT = `
                 }
             });
 
-            tableHTML += \`</tbody></table>\`; 
+            tableHTML += \`</tbody></table>\`;
+
+            // 添加分页控件
+            tableHTML += generatePaginationHTML(sortedData.length);
+
             document.getElementById('tableContent').innerHTML = tableHTML;
             // Add fade-in animation
             document.getElementById('tableContent').classList.add('fade-in');
+
+            // 更新全选 checkbox 状态和选择计数
+            updateSelectionUI();
+            const allCheckboxes = document.querySelectorAll('tbody .row-checkbox');
+            const checkedCheckboxes = document.querySelectorAll('tbody .row-checkbox:checked');
+            const selectAllCheckbox = document.getElementById('selectAll');
+            if (selectAllCheckbox && allCheckboxes.length > 0) {
+                selectAllCheckbox.checked = checkedCheckboxes.length === allCheckboxes.length;
+                selectAllCheckbox.indeterminate = checkedCheckboxes.length > 0 && checkedCheckboxes.length < allCheckboxes.length;
+            }
         }  
   
         document.addEventListener('DOMContentLoaded', async () => {
             initTheme();
+            initSortConfig();       // 初始化排序配置
+            initPaginationConfig(); // 初始化分页配置
             await checkPasswordRequired();  // 先检查密码
             loadData(0, true);  // 初次加载
             initAutoRefresh();  // 初始化自动刷新
@@ -1609,7 +2177,11 @@ const HTML_CONTENT = `
                         cells[2].style.transition = 'opacity 0.2s';
                         cells[2].style.opacity = '0.4';
                         setTimeout(() => {
-                            cells[2].textContent = d.startDate + ' ~ ' + d.endDate;
+                            const dateStyle = getDateStyle(d.endDate);
+                            const tooltip = getExpiryTooltip(d.endDate);
+                            cells[2].setAttribute('style', dateStyle);
+                            cells[2].setAttribute('title', tooltip);
+                            cells[2].textContent = d.startDate + ' ~ ' + d.endDate + (tooltip ? ' ⚠️' : '');
                             cells[2].style.opacity = '1';
                         }, 200);
                         
@@ -1769,6 +2341,77 @@ const HTML_CONTENT = `
         function closeManageModal() {
             document.getElementById('manageModal').classList.remove('show');
             clearMessage();
+        }
+
+        // Batch Delete Modal Functions
+        function openBatchDeleteModal() {
+            document.getElementById('batchDeleteModal').classList.add('show');
+            clearBatchDeleteMessage();
+        }
+
+        function closeBatchDeleteModal() {
+            document.getElementById('batchDeleteModal').classList.remove('show');
+            clearBatchDeleteMessage();
+        }
+
+        function showBatchDeleteMessage(message, isError = false) {
+            const msgDiv = document.getElementById('batchDeleteMessage');
+            msgDiv.innerHTML = \`<div style="padding: 12px; border-radius: 8px; margin-bottom: 16px; background: \${isError ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)'}; color: \${isError ? '#f87171' : '#34d399'}; border: 1px solid \${isError ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'};">\${message}</div>\`;
+            setTimeout(() => clearBatchDeleteMessage(), 5000);
+        }
+
+        function clearBatchDeleteMessage() {
+            document.getElementById('batchDeleteMessage').innerHTML = '';
+        }
+
+        async function batchDeleteKeysByValue(event) {
+            event.preventDefault();
+            const input = document.getElementById('batchDeleteKeysInput').value.trim();
+            if (!input) return showBatchDeleteMessage('请输入要删除的 Keys', true);
+
+            const lines = input.split('\\n').map(line => line.trim()).filter(line => line.length > 0);
+            if (lines.length === 0) return showBatchDeleteMessage('没有有效的 Key 可以删除', true);
+
+            // 确认删除
+            const confirmed = await showConfirm({
+                title: '批量删除确认',
+                message: '确定要删除输入的 ' + lines.length + ' 个 Key 吗？',
+                type: 'warning',
+                confirmText: '删除'
+            });
+            if (!confirmed) return;
+
+            // 显示删除中动画
+            const deleteBtn = document.getElementById('batchDeleteBtn');
+            deleteBtn.disabled = true;
+            const originalText = deleteBtn.innerHTML;
+            deleteBtn.innerHTML = '<span class="spinner" style="width:16px;height:16px;border-width:2px;"></span> 删除中...';
+
+            try {
+                const response = await fetch('/api/keys/batch-delete-by-value', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keys: lines })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    document.getElementById('batchDeleteKeysInput').value = '';
+                    closeBatchDeleteModal();
+                    let msg = '成功删除 ' + result.deleted + ' 个 Key';
+                    if (result.notFound > 0) {
+                        msg += '，' + result.notFound + ' 个未找到';
+                    }
+                    showToast('删除成功', msg, 'success');
+                    loadData();
+                } else {
+                    showBatchDeleteMessage(result.error || '批量删除失败', true);
+                }
+            } catch (error) {
+                showBatchDeleteMessage('网络错误: ' + error.message, true);
+            } finally {
+                deleteBtn.disabled = false;
+                deleteBtn.innerHTML = originalText;
+            }
         }
 
         function showMessage(message, isError = false) {
@@ -1999,9 +2642,11 @@ const HTML_CONTENT = `
             const manageModal = document.getElementById('manageModal');
             const settingsModal = document.getElementById('settingsModal');
             const confirmModal = document.getElementById('confirmModal');
+            const batchDeleteModal = document.getElementById('batchDeleteModal');
             if (event.target === manageModal) closeManageModal();
             if (event.target === settingsModal) closeSettingsModal();
             if (event.target === confirmModal) closeConfirmModal(false);
+            if (event.target === batchDeleteModal) closeBatchDeleteModal();
         });
     </script>
 </body>
@@ -2338,6 +2983,58 @@ async function handleBatchDeleteKeys(req: Request): Promise<Response> {
 }
 
 /**
+ * Handles POST /api/keys/batch-delete-by-value - Batch delete keys by their value.
+ */
+async function handleBatchDeleteByValue(req: Request): Promise<Response> {
+    try {
+        const { keys } = await req.json() as { keys: string[] };
+        if (!Array.isArray(keys) || keys.length === 0) {
+            return createErrorResponse("keys array is required", 400);
+        }
+
+        // 获取所有存储的 keys
+        const allKeys = await getAllKeys();
+
+        // 创建 key 值到 id 的映射
+        const keyToIdMap = new Map<string, string>();
+        allKeys.forEach(k => keyToIdMap.set(k.key, k.id));
+
+        // 找到要删除的 key 对应的 id
+        const idsToDelete: string[] = [];
+        let notFound = 0;
+
+        for (const keyValue of keys) {
+            const trimmedKey = keyValue.trim();
+            if (!trimmedKey) continue;
+
+            const id = keyToIdMap.get(trimmedKey);
+            if (id) {
+                idsToDelete.push(id);
+            } else {
+                notFound++;
+            }
+        }
+
+        if (idsToDelete.length === 0) {
+            return createJsonResponse({ success: true, deleted: 0, notFound });
+        }
+
+        // 批量删除
+        await Promise.all(idsToDelete.map(id => deleteKey(id).catch(() => { })));
+        // 直接更新缓存
+        serverState.removeKeysFromCache(idsToDelete);
+
+        return createJsonResponse({
+            success: true,
+            deleted: idsToDelete.length,
+            notFound
+        });
+    } catch (error) {
+        return createErrorResponse(error instanceof Error ? error.message : 'Invalid JSON', 400);
+    }
+}
+
+/**
  * Handles POST /api/keys/export - exports all API keys.
  */
 async function handleExportKeys(_req: Request): Promise<Response> {
@@ -2451,6 +3148,11 @@ async function handler(req: Request): Promise<Response> {
     // Route: POST /api/keys/batch-delete - Batch delete keys
     if (url.pathname === "/api/keys/batch-delete" && req.method === "POST") {
         return await handleBatchDeleteKeys(req);
+    }
+
+    // Route: POST /api/keys/batch-delete-by-value - Batch delete keys by value
+    if (url.pathname === "/api/keys/batch-delete-by-value" && req.method === "POST") {
+        return await handleBatchDeleteByValue(req);
     }
 
     // Route: POST /api/keys/export - Export keys with password
