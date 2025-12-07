@@ -2941,7 +2941,42 @@ async function autoRefreshData(waitIfBusy = false) {
 
     try {
         const data = await getAggregatedData();
-        serverState.updateCache(data);
+
+        // 再次获取数据库中当前存在的 key IDs，过滤掉已被删除的 keys
+        // 这是为了解决多实例环境下（如 Deno Deploy）的数据同步问题
+        const currentDbKeys = await getAllKeys();
+        const currentDbKeyIds = new Set(currentDbKeys.map(k => k.id));
+
+        const validData = data.data.filter(item => currentDbKeyIds.has(item.id));
+
+        if (validData.length !== data.data.length) {
+            console.log(`[${timestamp}] Filtered out ${data.data.length - validData.length} stale keys`);
+
+            // 重新计算统计值
+            let totalUsed = 0, totalAllowance = 0, totalRemaining = 0;
+            validData.forEach(item => {
+                if (!('error' in item)) {
+                    totalUsed += item.orgTotalTokensUsed || 0;
+                    totalAllowance += item.totalAllowance || 0;
+                    totalRemaining += Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
+                }
+            });
+
+            const filteredData: AggregatedResponse = {
+                ...data,
+                total_count: validData.length,
+                data: validData,
+                totals: {
+                    total_orgTotalTokensUsed: totalUsed,
+                    total_totalAllowance: totalAllowance,
+                    totalRemaining: totalRemaining
+                }
+            };
+            serverState.updateCache(filteredData);
+        } else {
+            serverState.updateCache(data);
+        }
+
         console.log(`[${timestamp}] Data updated successfully.`);
     } catch (error) {
         serverState.setError(error instanceof Error ? error.message : 'Refresh failed');
