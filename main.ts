@@ -7,6 +7,13 @@ import { format } from "https://deno.land/std@0.182.0/datetime/mod.ts";
 interface ApiKey {
     id: string;
     key: string;
+    createdAt?: number;  // 导入时间戳
+}
+
+// 数据库存储结构（兼容旧数据）
+interface StoredApiKey {
+    key: string;
+    createdAt: number;
 }
 
 interface ApiUsageData {
@@ -18,6 +25,7 @@ interface ApiUsageData {
     orgTotalTokensUsed: number;
     totalAllowance: number;
     usedRatio: number;
+    createdAt?: number;  // 导入时间戳
 }
 
 interface ApiErrorData {
@@ -25,6 +33,7 @@ interface ApiErrorData {
     key: string;
     fullKey: string;
     error: string;
+    createdAt?: number;  // 导入时间戳
 }
 
 type ApiKeyResult = ApiUsageData | ApiErrorData;
@@ -216,18 +225,29 @@ const kv = await Deno.openKv();
 
 async function getAllKeys(): Promise<ApiKey[]> {
     const keys: ApiKey[] = [];
-    const entries = kv.list<string>({ prefix: ["api_keys"] });
+    const entries = kv.list<string | StoredApiKey>({ prefix: ["api_keys"] });
 
     for await (const entry of entries) {
         const id = entry.key[1] as string;
-        keys.push({ id, key: entry.value });
+        const value = entry.value;
+
+        // 兼容旧数据（字符串）和新数据（对象）
+        if (typeof value === 'string') {
+            keys.push({ id, key: value, createdAt: undefined });
+        } else if (value && typeof value === 'object') {
+            keys.push({ id, key: value.key, createdAt: value.createdAt });
+        }
     }
 
     return keys;
 }
 
-async function addKey(id: string, key: string): Promise<void> {
-    await kv.set(["api_keys", id], key);
+async function addKey(id: string, key: string, createdAt?: number): Promise<void> {
+    const storedData: StoredApiKey = {
+        key,
+        createdAt: createdAt || Date.now()
+    };
+    await kv.set(["api_keys", id], storedData);
 }
 
 async function deleteKey(id: string): Promise<void> {
@@ -459,14 +479,15 @@ const HTML_CONTENT = `
 
         th {
             text-align: left;
-            padding: 20px 24px;
+            padding: 14px 16px;
             color: var(--text-secondary);
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
             background: var(--bg-tertiary);
             border-bottom: 1px solid var(--border);
+            white-space: nowrap;
         }
 
         th.sortable {
@@ -499,12 +520,13 @@ const HTML_CONTENT = `
             justify-content: flex-end;
         }
 
-        td { 
-            padding: 20px 24px; 
-            color: var(--text); 
-            font-size: 15px; 
+        td {
+            padding: 12px 16px;
+            color: var(--text);
+            font-size: 14px;
             border-bottom: 1px solid var(--border);
             vertical-align: middle;
+            white-space: nowrap;
         }
 
         tbody tr:hover { background: var(--bg-tertiary); }
@@ -649,15 +671,15 @@ const HTML_CONTENT = `
             gap: 12px;
         }
 
-        .key-badge { 
-            font-family: var(--font-mono); 
-            background: var(--bg-tertiary); 
-            padding: 8px 14px; 
-            border-radius: 6px; 
-            font-size: 14px; 
+        .key-badge {
+            font-family: var(--font-mono);
+            background: var(--bg-tertiary);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 13px;
             color: var(--text);
             border: 1px solid var(--border);
-            max-width: 280px;
+            max-width: 200px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -1417,6 +1439,10 @@ const HTML_CONTENT = `
                         aVal = a.key || '';
                         bVal = b.key || '';
                         break;
+                    case 'createdAt':
+                        aVal = a.createdAt || 0;
+                        bVal = b.createdAt || 0;
+                        break;
                     case 'endDate':
                         aVal = a.endDate ? new Date(a.endDate).getTime() : 0;
                         bVal = b.endDate ? new Date(b.endDate).getTime() : 0;
@@ -1538,6 +1564,32 @@ const HTML_CONTENT = `
                 return daysLeft + '天后到期';
             }
             return '';
+        }
+
+        // 格式化导入时间
+        function formatCreatedAt(timestamp) {
+            if (!timestamp) return '-';
+            try {
+                const date = new Date(timestamp);
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                return month + '-' + day + ' ' + hours + ':' + minutes;
+            } catch {
+                return '-';
+            }
+        }
+
+        // 获取导入时间的完整格式（用于 tooltip）
+        function getCreatedAtFull(timestamp) {
+            if (!timestamp) return '未知';
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString('zh-CN');
+            } catch {
+                return '未知';
+            }
         }  
 
         // Theme Toggle Function
@@ -1947,6 +1999,9 @@ const HTML_CONTENT = `
                             <th class="sortable \${sortConfig.column === 'key' ? 'active' : ''}" onclick="toggleSort('key')">
                                 <div class="th-content">API Key \${getSortIcon('key')}</div>
                             </th>
+                            <th class="sortable \${sortConfig.column === 'createdAt' ? 'active' : ''}" onclick="toggleSort('createdAt')">
+                                <div class="th-content">导入时间 \${getSortIcon('createdAt')}</div>
+                            </th>
                             <th class="sortable \${sortConfig.column === 'endDate' ? 'active' : ''}" onclick="toggleSort('endDate')">
                                 <div class="th-content">有效期 \${getSortIcon('endDate')}</div>
                             </th>
@@ -1959,7 +2014,7 @@ const HTML_CONTENT = `
                             <th class="sortable \${sortConfig.column === 'remaining' ? 'active' : ''}" onclick="toggleSort('remaining')" style="text-align: right;">
                                 <div class="th-content right">剩余 \${getSortIcon('remaining')}</div>
                             </th>
-                            <th class="sortable \${sortConfig.column === 'usedRatio' ? 'active' : ''}" onclick="toggleSort('usedRatio')" style="width: 200px;">
+                            <th class="sortable \${sortConfig.column === 'usedRatio' ? 'active' : ''}" onclick="toggleSort('usedRatio')" style="width: 160px;">
                                 <div class="th-content">使用率 \${getSortIcon('usedRatio')}</div>
                             </th>
                             <th style="text-align: center;">操作</th>
@@ -1998,6 +2053,7 @@ const HTML_CONTENT = `
                                     </button>
                                 </div>
                             </td>
+                            <td style="color: var(--text-muted); font-size: 13px;" title="\${getCreatedAtFull(item.createdAt)}">\${formatCreatedAt(item.createdAt)}</td>
                             <td colspan="5" style="color: var(--danger); font-weight: 500;">\${item.error}</td>
                             <td style="text-align: center;">
                                 <button class="btn btn-sm" onclick="refreshSingleKey('\${item.id}', this)">↻</button>
@@ -2022,6 +2078,7 @@ const HTML_CONTENT = `
                                     </button>
                                 </div>
                             </td>
+                            <td style="color: var(--text-muted); font-size: 13px;" title="\${getCreatedAtFull(item.createdAt)}">\${formatCreatedAt(item.createdAt)}</td>
                             <td style="\${getDateStyle(item.endDate)}" title="\${getExpiryTooltip(item.endDate)}">\${item.startDate} ~ \${item.endDate}\${getExpiryTooltip(item.endDate) ? ' ⚠️' : ''}</td>
                             <td style="text-align: right;">\${formatNumber(item.totalAllowance)}</td>
                             <td style="text-align: right;">\${formatNumber(item.orgTotalTokensUsed)}</td>
@@ -2165,59 +2222,59 @@ const HTML_CONTENT = `
                     
                     // 获取所有单元格
                     const cells = row.querySelectorAll('td');
-                    if (cells.length >= 8) {
+                    if (cells.length >= 9) {
                         const remaining = Math.max(0, d.totalAllowance - d.orgTotalTokensUsed);
                         const ratio = d.usedRatio || 0;
                         const pClass = ratio < 0.5 ? 'progress-low' : ratio < 0.8 ? 'progress-medium' : 'progress-high';
-                        
+
                         // 直接更新数字，带淡入淡出效果
-                        // cells[0]=checkbox, cells[1]=API Key (不更新这两个)
-                        
-                        // 有效期
-                        cells[2].style.transition = 'opacity 0.2s';
-                        cells[2].style.opacity = '0.4';
-                        setTimeout(() => {
-                            const dateStyle = getDateStyle(d.endDate);
-                            const tooltip = getExpiryTooltip(d.endDate);
-                            cells[2].setAttribute('style', dateStyle);
-                            cells[2].setAttribute('title', tooltip);
-                            cells[2].textContent = d.startDate + ' ~ ' + d.endDate + (tooltip ? ' ⚠️' : '');
-                            cells[2].style.opacity = '1';
-                        }, 200);
-                        
-                        // 总额度
+                        // cells[0]=checkbox, cells[1]=API Key, cells[2]=导入时间 (不更新这三个)
+
+                        // 有效期 (cells[3])
                         cells[3].style.transition = 'opacity 0.2s';
                         cells[3].style.opacity = '0.4';
                         setTimeout(() => {
-                            cells[3].textContent = formatNumber(d.totalAllowance);
+                            const dateStyle = getDateStyle(d.endDate);
+                            const tooltip = getExpiryTooltip(d.endDate);
+                            cells[3].setAttribute('style', dateStyle);
+                            cells[3].setAttribute('title', tooltip);
+                            cells[3].textContent = d.startDate + ' ~ ' + d.endDate + (tooltip ? ' ⚠️' : '');
                             cells[3].style.opacity = '1';
                         }, 200);
-                        
-                        // 已使用
+
+                        // 总额度 (cells[4])
                         cells[4].style.transition = 'opacity 0.2s';
                         cells[4].style.opacity = '0.4';
                         setTimeout(() => {
-                            cells[4].textContent = formatNumber(d.orgTotalTokensUsed);
+                            cells[4].textContent = formatNumber(d.totalAllowance);
                             cells[4].style.opacity = '1';
                         }, 200);
-                        
-                        // 剩余
-                        cells[5].style.transition = 'opacity 0.2s, color 0.3s';
+
+                        // 已使用 (cells[5])
+                        cells[5].style.transition = 'opacity 0.2s';
                         cells[5].style.opacity = '0.4';
                         setTimeout(() => {
-                            cells[5].textContent = formatNumber(remaining);
-                            cells[5].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
+                            cells[5].textContent = formatNumber(d.orgTotalTokensUsed);
                             cells[5].style.opacity = '1';
                         }, 200);
-                        
-                        // 使用率 + 进度条
-                        cells[6].style.transition = 'opacity 0.2s';
+
+                        // 剩余 (cells[6])
+                        cells[6].style.transition = 'opacity 0.2s, color 0.3s';
                         cells[6].style.opacity = '0.4';
                         setTimeout(() => {
-                            cells[6].innerHTML = '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>' + formatPercentage(ratio) + '</span></div><div class="progress-track"><div class="progress-fill ' + pClass + '" style="width:' + Math.min(ratio*100,100) + '%;transition:width 0.3s"></div></div>';
+                            cells[6].textContent = formatNumber(remaining);
+                            cells[6].style.color = remaining > 0 ? 'var(--success)' : 'var(--danger)';
                             cells[6].style.opacity = '1';
                         }, 200);
-                        
+
+                        // 使用率 + 进度条 (cells[7])
+                        cells[7].style.transition = 'opacity 0.2s';
+                        cells[7].style.opacity = '0.4';
+                        setTimeout(() => {
+                            cells[7].innerHTML = '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>' + formatPercentage(ratio) + '</span></div><div class="progress-track"><div class="progress-fill ' + pClass + '" style="width:' + Math.min(ratio*100,100) + '%;transition:width 0.3s"></div></div>';
+                            cells[7].style.opacity = '1';
+                        }, 200);
+
                         // 更新状态点
                         const dot = row.querySelector('.status-dot');
                         if (dot) {
@@ -2684,7 +2741,7 @@ async function batchProcess<T, R>(
 /**
  * Fetches usage data for a single API key with retry logic.
  */
-async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise<ApiKeyResult> {
+async function fetchApiKeyData(id: string, key: string, createdAt?: number, retryCount = 0): Promise<ApiKeyResult> {
     const maskedKey = maskApiKey(key);
     const maxRetries = 2;
 
@@ -2700,16 +2757,16 @@ async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise
             if (response.status === 401 && retryCount < maxRetries) {
                 const delayMs = (retryCount + 1) * 1000;
                 await new Promise(resolve => setTimeout(resolve, delayMs));
-                return fetchApiKeyData(id, key, retryCount + 1);
+                return fetchApiKeyData(id, key, createdAt, retryCount + 1);
             }
-            return { id, key: maskedKey, fullKey: key, error: `HTTP ${response.status}` };
+            return { id, key: maskedKey, fullKey: key, error: `HTTP ${response.status}`, createdAt };
         }
 
         const apiData: ApiResponse = await response.json();
         const { usage } = apiData;
 
         if (!usage?.standard) {
-            return { id, key: maskedKey, fullKey: key, error: 'Invalid API response' };
+            return { id, key: maskedKey, fullKey: key, error: 'Invalid API response', createdAt };
         }
 
         const { standard } = usage;
@@ -2722,9 +2779,10 @@ async function fetchApiKeyData(id: string, key: string, retryCount = 0): Promise
             orgTotalTokensUsed: standard.orgTotalTokensUsed || 0,
             totalAllowance: standard.totalAllowance || 0,
             usedRatio: standard.usedRatio || 0,
+            createdAt,
         };
     } catch (error) {
-        return { id, key: maskedKey, fullKey: key, error: 'Failed to fetch' };
+        return { id, key: maskedKey, fullKey: key, error: 'Failed to fetch', createdAt };
     }
 }
 
@@ -2752,7 +2810,7 @@ async function getAggregatedData(): Promise<AggregatedResponse> {
 
     const results = await batchProcess(
         keyPairs,
-        ({ id, key }) => fetchApiKeyData(id, key),
+        ({ id, key, createdAt }) => fetchApiKeyData(id, key, createdAt),
         10,
         100
     );
@@ -3095,16 +3153,25 @@ async function handleRefreshSingleKey(pathname: string): Promise<Response> {
         }
 
         // Get the key from database
-        const result = await kv.get<string>(["api_keys", id]);
+        const result = await kv.get<string | StoredApiKey>(["api_keys", id]);
 
         if (!result.value) {
             return createErrorResponse("Key not found", 404);
         }
 
-        const key = result.value;
+        // 兼容旧数据和新数据
+        let key: string;
+        let createdAt: number | undefined;
+        if (typeof result.value === 'string') {
+            key = result.value;
+            createdAt = undefined;
+        } else {
+            key = result.value.key;
+            createdAt = result.value.createdAt;
+        }
 
         // Fetch fresh data for this key
-        const keyData = await fetchApiKeyData(id, key);
+        const keyData = await fetchApiKeyData(id, key, createdAt);
 
         return createJsonResponse({
             success: true,
