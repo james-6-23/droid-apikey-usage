@@ -110,11 +110,14 @@ class ServerState {
 
         // 始终在返回数据时过滤pendingDeletions，防止任何竞态条件
         if (this.pendingDeletions.size === 0) {
+            console.log(`[getData] Returning cached data directly (${this.cachedData.data.length} items)`);
             return this.cachedData;
         }
 
+        console.log(`[getData] Filtering with ${this.pendingDeletions.size} pending deletions`);
         const filteredData = this.cachedData.data.filter(item => !this.pendingDeletions.has(item.id));
-        
+        console.log(`[getData] After filter: ${filteredData.length} items (was ${this.cachedData.data.length})`);
+
         // 重新计算统计值
         let totalUsed = 0, totalAllowance = 0, totalRemaining = 0;
         filteredData.forEach(item => {
@@ -124,7 +127,7 @@ class ServerState {
                 totalRemaining += Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
             }
         });
-        
+
         return {
             ...this.cachedData,
             total_count: filteredData.length,
@@ -139,12 +142,17 @@ class ServerState {
     
     getError = () => this.lastError;
     isCurrentlyUpdating = () => this.isUpdating;
+    getPendingDeletionsSize = () => this.pendingDeletions.size;
 
     updateCache(data: AggregatedResponse) {
+        console.log(`[updateCache] Called with ${data.data.length} items, pendingDeletions size: ${this.pendingDeletions.size}`);
         // 始终过滤掉已删除的 keys（处理并发刷新问题）
         if (this.pendingDeletions.size > 0) {
+            const pendingIds = Array.from(this.pendingDeletions.keys());
+            console.log(`[updateCache] Filtering out pending deletions: ${pendingIds.join(', ')}`);
             const newDataIds = new Set(data.data.map(item => item.id));
             const filteredData = data.data.filter(item => !this.pendingDeletions.has(item.id));
+            console.log(`[updateCache] After filter: ${filteredData.length} items (removed ${data.data.length - filteredData.length})`);
 
             // 重新计算统计值
             let totalUsed = 0, totalAllowance = 0, totalRemaining = 0;
@@ -173,10 +181,12 @@ class ServerState {
             const now = Date.now();
             this.pendingDeletions.forEach((deletionTime, id) => {
                 if (!newDataIds.has(id) && (now - deletionTime) > ServerState.DELETION_CLEANUP_DELAY_MS) {
+                    console.log(`[updateCache] Cleaning up pendingDeletion: ${id}`);
                     this.pendingDeletions.delete(id);
                 }
             });
         } else {
+            console.log(`[updateCache] No pending deletions, setting cache directly`);
             this.cachedData = data;
         }
 
@@ -213,14 +223,20 @@ class ServerState {
 
     // 标记 keys 为已删除（增量更新缓存 + 记录到待删除列表）
     removeKeysFromCache(idsToRemove: string[]) {
+        console.log(`[removeKeysFromCache] Removing ids: ${idsToRemove.join(', ')}`);
         // 添加到待删除列表，记录删除时间，确保后续刷新也会过滤这些 key
         const now = Date.now();
         idsToRemove.forEach(id => this.pendingDeletions.set(id, now));
 
-        if (!this.cachedData) return;
+        if (!this.cachedData) {
+            console.log(`[removeKeysFromCache] No cached data, only added to pendingDeletions`);
+            return;
+        }
 
         const idsSet = new Set(idsToRemove);
+        const beforeCount = this.cachedData.data.length;
         const removedData = this.cachedData.data.filter(item => idsSet.has(item.id));
+        console.log(`[removeKeysFromCache] Found ${removedData.length} items to remove from cache (before: ${beforeCount})`);
 
         // 计算被移除的有效数据的统计值
         let removedUsed = 0, removedAllowance = 0, removedRemaining = 0;
@@ -233,10 +249,11 @@ class ServerState {
         });
 
         // 更新缓存
+        const newData = this.cachedData.data.filter(item => !idsSet.has(item.id));
         this.cachedData = {
             ...this.cachedData,
-            total_count: this.cachedData.total_count - idsToRemove.length,
-            data: this.cachedData.data.filter(item => !idsSet.has(item.id)),
+            total_count: newData.length,
+            data: newData,
             totals: {
                 total_orgTotalTokensUsed: this.cachedData.totals.total_orgTotalTokensUsed - removedUsed,
                 total_totalAllowance: this.cachedData.totals.total_totalAllowance - removedAllowance,
@@ -244,6 +261,7 @@ class ServerState {
             },
             update_time: this.cachedData.update_time
         };
+        console.log(`[removeKeysFromCache] Cache updated, new count: ${this.cachedData.data.length}`);
     }
 }
 
@@ -3058,11 +3076,14 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
 
 async function handleDeleteKey(pathname: string): Promise<Response> {
     const id = pathname.split("/api/keys/")[1];
+    console.log(`[DELETE] Received delete request for id: ${id}`);
     if (!id) return createErrorResponse("Key ID is required", 400);
 
     await deleteKey(id);
+    console.log(`[DELETE] Database delete completed for id: ${id}`);
     // 直接更新缓存（增量更新，无需完整刷新）
     serverState.removeKeysFromCache([id]);
+    console.log(`[DELETE] Cache updated, pendingDeletions size: ${serverState.getPendingDeletionsSize()}`);
 
     return createJsonResponse({ success: true });
 }
