@@ -3079,11 +3079,13 @@ async function handleDeleteKey(pathname: string): Promise<Response> {
     console.log(`[DELETE] Received delete request for id: ${id}`);
     if (!id) return createErrorResponse("Key ID is required", 400);
 
+    // 先标记为待删除，防止并发刷新带来旧数据
+    serverState.removeKeysFromCache([id]);
+    console.log(`[DELETE] Marked as pending deletion, pendingDeletions size: ${serverState.getPendingDeletionsSize()}`);
+
+    // 然后删除数据库
     await deleteKey(id);
     console.log(`[DELETE] Database delete completed for id: ${id}`);
-    // 直接更新缓存（增量更新，无需完整刷新）
-    serverState.removeKeysFromCache([id]);
-    console.log(`[DELETE] Cache updated, pendingDeletions size: ${serverState.getPendingDeletionsSize()}`);
 
     return createJsonResponse({ success: true });
 }
@@ -3095,9 +3097,11 @@ async function handleBatchDeleteKeys(req: Request): Promise<Response> {
             return createErrorResponse("ids array is required", 400);
         }
 
-        await Promise.all(ids.map(id => deleteKey(id).catch(() => { })));
-        // 直接更新缓存（增量更新，无需完整刷新）
+        // 先标记为待删除，防止并发刷新带来旧数据
         serverState.removeKeysFromCache(ids);
+
+        // 然后删除数据库
+        await Promise.all(ids.map(id => deleteKey(id).catch(() => { })));
 
         return createJsonResponse({ success: true, deleted: ids.length });
     } catch (error) {
@@ -3142,10 +3146,11 @@ async function handleBatchDeleteByValue(req: Request): Promise<Response> {
             return createJsonResponse({ success: true, deleted: 0, notFound });
         }
 
-        // 批量删除
-        await Promise.all(idsToDelete.map(id => deleteKey(id).catch(() => { })));
-        // 直接更新缓存
+        // 先标记为待删除，防止并发刷新带来旧数据
         serverState.removeKeysFromCache(idsToDelete);
+
+        // 然后批量删除数据库
+        await Promise.all(idsToDelete.map(id => deleteKey(id).catch(() => { })));
 
         return createJsonResponse({
             success: true,
