@@ -89,18 +89,30 @@ class ServerState {
     private cachedData: AggregatedResponse | null = null;
     private lastError: string | null = null;
     private isUpdating = false;
-    // 追踪已删除的 key IDs，防止并发刷新时数据重新出现
-    private pendingDeletions: Set<string> = new Set();
+    // 追踪已删除的 key IDs 及其删除时间，防止并发刷新时数据重新出现
+    private pendingDeletions: Map<string, number> = new Map();
+    // 用于等待当前更新完成的 Promise
+    private updatePromise: Promise<void> | null = null;
+    private updateResolve: (() => void) | null = null;
+    // pendingDeletions 清理的最小等待时间（毫秒），应大于自动刷新间隔
+    private static readonly DELETION_CLEANUP_DELAY_MS = 120000; // 2分钟
+
+    // 等待当前更新完成
+    async waitForUpdate(): Promise<void> {
+        if (this.updatePromise) {
+            await this.updatePromise;
+        }
+    }
 
     // 获取数据时始终过滤掉已删除的keys
     getData(): AggregatedResponse | null {
         if (!this.cachedData) return null;
-        
+
         // 始终在返回数据时过滤pendingDeletions，防止任何竞态条件
         if (this.pendingDeletions.size === 0) {
             return this.cachedData;
         }
-        
+
         const filteredData = this.cachedData.data.filter(item => !this.pendingDeletions.has(item.id));
         
         // 重新计算统计值
@@ -155,10 +167,12 @@ class ServerState {
                 }
             };
 
-            // 只移除那些确实不在新数据中的 key（说明数据库已经删除了）
-            // 这样即使有多个并发刷新，也能正确过滤
-            this.pendingDeletions.forEach(id => {
-                if (!newDataIds.has(id)) {
+            // 清理 pendingDeletions：只移除那些满足以下条件的 key：
+            // 1. 新数据中不包含该 key（说明数据库已删除）
+            // 2. 删除时间已超过阈值（确保所有并发刷新都已完成）
+            const now = Date.now();
+            this.pendingDeletions.forEach((deletionTime, id) => {
+                if (!newDataIds.has(id) && (now - deletionTime) > ServerState.DELETION_CLEANUP_DELAY_MS) {
                     this.pendingDeletions.delete(id);
                 }
             });
@@ -168,21 +182,40 @@ class ServerState {
 
         this.lastError = null;
         this.isUpdating = false;
+        // 通知等待者更新完成
+        if (this.updateResolve) {
+            this.updateResolve();
+            this.updatePromise = null;
+            this.updateResolve = null;
+        }
     }
 
     setError(errorMessage: string) {
         this.lastError = errorMessage;
         this.isUpdating = false;
+        // 通知等待者更新完成（即使出错）
+        if (this.updateResolve) {
+            this.updateResolve();
+            this.updatePromise = null;
+            this.updateResolve = null;
+        }
     }
 
     startUpdate() {
         this.isUpdating = true;
+        // 创建一个 Promise，让其他调用者可以等待
+        if (!this.updatePromise) {
+            this.updatePromise = new Promise<void>((resolve) => {
+                this.updateResolve = resolve;
+            });
+        }
     }
 
     // 标记 keys 为已删除（增量更新缓存 + 记录到待删除列表）
     removeKeysFromCache(idsToRemove: string[]) {
-        // 添加到待删除列表，确保后续刷新也会过滤这些 key
-        idsToRemove.forEach(id => this.pendingDeletions.add(id));
+        // 添加到待删除列表，记录删除时间，确保后续刷新也会过滤这些 key
+        const now = Date.now();
+        idsToRemove.forEach(id => this.pendingDeletions.set(id, now));
 
         if (!this.cachedData) return;
 
@@ -2869,9 +2902,20 @@ function logKeysWithBalance(validResults: ApiUsageData[], keyPairs: ApiKey[]): v
 
 /**
  * Periodically fetches data and updates the server state cache.
+ * @param waitIfBusy - 如果为 true，当有正在进行的更新时会等待它完成后再执行新的刷新
  */
-async function autoRefreshData() {
-    if (serverState.isCurrentlyUpdating()) return;
+async function autoRefreshData(waitIfBusy = false) {
+    // 如果正在更新
+    if (serverState.isCurrentlyUpdating()) {
+        if (waitIfBusy) {
+            // 等待当前更新完成
+            await serverState.waitForUpdate();
+            // 更新完成后，再执行一次刷新以获取最新数据
+        } else {
+            // 定时刷新：直接跳过，避免排队
+            return;
+        }
+    }
 
     const timestamp = format(getBeijingTime(), "HH:mm:ss");
     console.log(`[${timestamp}] Starting data refresh...`);
@@ -2989,7 +3033,7 @@ async function handleBatchImport(items: unknown[]): Promise<Response> {
     if (keysToAdd.length > 0) {
         await Promise.all(keysToAdd.map(({ id, key }) => addKey(id, key)));
         // 等待刷新完成，确保前端能获取最新数据
-        await autoRefreshData();
+        await autoRefreshData(true);
     }
 
     return createJsonResponse({ success: true, added, skipped });
@@ -3007,7 +3051,7 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
     const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     await addKey(id, key);
     // 等待刷新完成，确保前端能获取最新数据
-    await autoRefreshData();
+    await autoRefreshData(true);
 
     return createJsonResponse({ success: true });
 }
