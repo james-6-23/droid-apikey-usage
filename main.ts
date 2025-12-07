@@ -96,12 +96,24 @@ class ServerState {
     private updateResolve: (() => void) | null = null;
     // pendingDeletions 清理的最小等待时间（毫秒），应大于自动刷新间隔
     private static readonly DELETION_CLEANUP_DELAY_MS = 120000; // 2分钟
+    // 当前缓存的数据版本号（用于多实例同步）
+    private cachedDataVersion: number = 0;
 
     // 等待当前更新完成
     async waitForUpdate(): Promise<void> {
         if (this.updatePromise) {
             await this.updatePromise;
         }
+    }
+
+    // 获取缓存的数据版本号
+    getCachedDataVersion(): number {
+        return this.cachedDataVersion;
+    }
+
+    // 设置缓存的数据版本号
+    setCachedDataVersion(version: number): void {
+        this.cachedDataVersion = version;
     }
 
     // 获取数据时始终过滤掉已删除的keys
@@ -299,10 +311,27 @@ async function addKey(id: string, key: string, createdAt?: number): Promise<void
         createdAt: createdAt || Date.now()
     };
     await kv.set(["api_keys", id], storedData);
+    // 更新数据版本号，通知其他实例数据已变化
+    await incrementDataVersion();
 }
 
 async function deleteKey(id: string): Promise<void> {
     await kv.delete(["api_keys", id]);
+    // 更新数据版本号，通知其他实例数据已变化
+    await incrementDataVersion();
+}
+
+// 数据版本号管理（用于多实例同步）
+async function getDataVersion(): Promise<number> {
+    const result = await kv.get<number>(["meta", "data_version"]);
+    return result.value || 0;
+}
+
+async function incrementDataVersion(): Promise<number> {
+    const current = await getDataVersion();
+    const newVersion = current + 1;
+    await kv.set(["meta", "data_version"], newVersion);
+    return newVersion;
 }
 
 async function apiKeyExists(key: string): Promise<boolean> {
@@ -2942,6 +2971,9 @@ async function autoRefreshData(waitIfBusy = false) {
     try {
         const data = await getAggregatedData();
 
+        // 获取当前数据库版本号
+        const currentDbVersion = await getDataVersion();
+
         // 再次获取数据库中当前存在的 key IDs，过滤掉已被删除的 keys
         // 这是为了解决多实例环境下（如 Deno Deploy）的数据同步问题
         const currentDbKeys = await getAllKeys();
@@ -2977,7 +3009,10 @@ async function autoRefreshData(waitIfBusy = false) {
             serverState.updateCache(data);
         }
 
-        console.log(`[${timestamp}] Data updated successfully.`);
+        // 更新缓存的版本号
+        serverState.setCachedDataVersion(currentDbVersion);
+
+        console.log(`[${timestamp}] Data updated successfully (version: ${currentDbVersion}).`);
     } catch (error) {
         serverState.setError(error instanceof Error ? error.message : 'Refresh failed');
     }
@@ -3000,6 +3035,16 @@ function handleRoot(): Response {
  * Handles the /api/data endpoint - returns cached aggregated usage data.
  */
 async function handleGetData(): Promise<Response> {
+    // 检查数据版本号，如果不匹配则需要刷新（解决多实例同步问题）
+    const dbVersion = await getDataVersion();
+    const cachedVersion = serverState.getCachedDataVersion();
+
+    if (dbVersion !== cachedVersion && !serverState.isCurrentlyUpdating()) {
+        console.log(`[handleGetData] Version mismatch (db: ${dbVersion}, cached: ${cachedVersion}), triggering refresh`);
+        // 同步刷新，确保返回最新数据
+        await autoRefreshData(true);
+    }
+
     const cachedData = serverState.getData();
 
     if (cachedData) {
