@@ -2757,19 +2757,20 @@ const HTML_CONTENT = `
                 showToast('提示', '请先加载数据', 'info');
                 return;
             }
-            const zeroBalanceKeys = currentApiData.data.filter(item => {
-                if (item.error) return false;
+            const invalidKeys = currentApiData.data.filter(item => {
+                // 401 错误视为无效 key
+                if (item.error) return (item.error || '').includes('401');
                 const remaining = Math.max(0, (item.totalAllowance || 0) - (item.orgTotalTokensUsed || 0));
                 return remaining === 0;
             });
 
-            if (zeroBalanceKeys.length === 0) {
-                showToast('太棒了！', '没有找到余额为 0 的 Key', 'success');
+            if (invalidKeys.length === 0) {
+                showToast('太棒了！', '没有找到无效或余额为 0 的 Key', 'success');
                 return;
             }
             const confirmed = await showConfirm({
                 title: '清理确认',
-                message: '发现 ' + zeroBalanceKeys.length + ' 个余额为 0 的 Key，确定要删除吗？',
+                message: '发现 ' + invalidKeys.length + ' 个无效或余额为 0 的 Key，确定要删除吗？',
                 type: 'warning',
                 confirmText: '清理'
             });
@@ -2784,11 +2785,11 @@ const HTML_CONTENT = `
                 const response = await fetch('/api/keys/batch-delete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ids: zeroBalanceKeys.map(k => k.id) })
+                    body: JSON.stringify({ ids: invalidKeys.map(k => k.id) })
                 });
                 const result = await response.json();
                 if (response.ok) {
-                    showToast('清理成功', '已清理 ' + (result.deleted || zeroBalanceKeys.length) + ' 个无效 Key', 'success');
+                    showToast('清理成功', '已清理 ' + (result.deleted || invalidKeys.length) + ' 个无效 Key', 'success');
                     loadData();
                 } else {
                     showToast('清理失败', result.error || '未知错误', 'error');
