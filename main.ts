@@ -479,6 +479,32 @@ function createErrorResponse(message: string, status = 500): Response {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+function mergePlaceholdersIntoCache(newKeys: ApiKey[]) {
+    if (!newKeys.length) return;
+    const cached = serverState.getData();
+    if (!cached) return;
+
+    const existingIds = new Set(cached.data.map(item => item.id));
+    const placeholders: ApiErrorData[] = newKeys
+        .filter(k => !existingIds.has(k.id))
+        .map(k => ({
+            id: k.id,
+            key: maskApiKey(k.key),
+            fullKey: k.key,
+            error: "等待刷新...",
+            createdAt: k.createdAt
+        }));
+
+    if (!placeholders.length) return;
+
+    const mergedData = [...cached.data, ...placeholders];
+    serverState.updateCache({
+        ...cached,
+        total_count: mergedData.length,
+        data: mergedData
+    });
+}
+
 // HTML content is embedded as a template string
 const HTML_CONTENT = `  
 <!DOCTYPE html>
@@ -3213,8 +3239,8 @@ async function handleGetData(): Promise<Response> {
             serverState.updateCache(kvCached.payload);
             serverState.setCachedDataVersion(kvCached.version);
         } else {
-            // 同步刷新，确保返回最新数据
-            await autoRefreshData(true);
+            // 异步刷新，避免阻塞请求
+            queueMicrotask(() => autoRefreshData(true).catch(err => console.error(err)));
         }
     }
 
@@ -3314,8 +3340,10 @@ async function handleBatchImport(items: unknown[]): Promise<Response> {
 
     if (keysToAdd.length > 0) {
         await addKeysBulk(keysToAdd);
-        // 同步刷新，确保前端能立刻看到新增
-        await autoRefreshData(true);
+        // 先将占位数据插入本地缓存，前端立即可见
+        mergePlaceholdersIntoCache(keysToAdd);
+        // 后台刷新获取真实数据
+        queueMicrotask(() => autoRefreshData().catch(err => console.error(err)));
     }
 
     return createJsonResponse({ success: true, added, skipped });
@@ -3333,8 +3361,9 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
 
     const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     await addKeysBulk([{ id, key: normalizedKey }]);
-    // 同步刷新，确保前端能立刻看到新增
-    await autoRefreshData(true);
+    mergePlaceholdersIntoCache([{ id, key: normalizedKey }]);
+    // 后台刷新获取真实数据
+    queueMicrotask(() => autoRefreshData().catch(err => console.error(err)));
 
     return createJsonResponse({ success: true });
 }
