@@ -69,6 +69,12 @@ interface BatchImportResult {
     skipped: number;
 }
 
+interface AggregatedCacheEntry {
+    version: number;
+    updatedAt: number;
+    payload: AggregatedResponse;
+}
+
 // ==================== Configuration ====================
 
 const CONFIG = {
@@ -82,6 +88,16 @@ const CONFIG = {
     EXPORT_PASSWORD: Deno.env.get("EXPORT_PASSWORD") || "admin123", // Default password for key export
     ACCESS_PASSWORD: Deno.env.get("PASSWORD") || "", // Access password for dashboard (empty = no password required)
 } as const;
+
+// KV keys / helpers
+const KV_KEY_PREFIX = ["api_keys"] as const;
+const KV_KEY_INDEX_PREFIX = ["api_key_index"] as const;
+const KV_DATA_VERSION_KEY = ["meta", "data_version"] as const;
+const KV_INDEX_READY_KEY = ["meta", "index_ready"] as const;
+const KV_AGGREGATED_CACHE_KEY = ["cache", "aggregated"] as const;
+const KV_REFRESH_LOCK_KEY = ["locks", "refresh"] as const;
+const KV_ATOMIC_BATCH_SIZE = 4; // keep atomic ops well under the limit (each key uses 2 ops)
+const REFRESH_LOCK_TTL_MS = 120_000;
 
 // ==================== Server State and Caching (NEW) ====================
 
@@ -286,9 +302,45 @@ const kv = await Deno.openKv();
 
 // ==================== Database Operations ====================
 
+function chunkArray<T>(items: T[], size: number): T[][] {
+    const result: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+        result.push(items.slice(i, i + size));
+    }
+    return result;
+}
+
+// 数据版本号管理（用于多实例同步）
+async function getDataVersion(): Promise<number> {
+    const result = await kv.get<number>(KV_DATA_VERSION_KEY);
+    return result.value || 0;
+}
+
+async function bumpDataVersion(): Promise<number> {
+    // 使用乐观锁来避免竞争，失败时重试几次
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const current = await kv.get<number>(KV_DATA_VERSION_KEY);
+        const next = (current.value || 0) + 1;
+        const atomic = kv.atomic();
+        if (current.versionstamp) {
+            atomic.check(current);
+        }
+        atomic.set(KV_DATA_VERSION_KEY, next);
+        const res = await atomic.commit();
+        if (res.ok) return next;
+    }
+    const fallback = Date.now();
+    await kv.set(KV_DATA_VERSION_KEY, fallback);
+    return fallback;
+}
+
+async function invalidateAggregatedCache() {
+    await kv.delete(KV_AGGREGATED_CACHE_KEY);
+}
+
 async function getAllKeys(): Promise<ApiKey[]> {
     const keys: ApiKey[] = [];
-    const entries = kv.list<string | StoredApiKey>({ prefix: ["api_keys"] });
+    const entries = kv.list<string | StoredApiKey>({ prefix: KV_KEY_PREFIX });
 
     for await (const entry of entries) {
         const id = entry.key[1] as string;
@@ -305,38 +357,90 @@ async function getAllKeys(): Promise<ApiKey[]> {
     return keys;
 }
 
-async function addKey(id: string, key: string, createdAt?: number): Promise<void> {
-    const storedData: StoredApiKey = {
-        key,
-        createdAt: createdAt || Date.now()
-    };
-    await kv.set(["api_keys", id], storedData);
-    // 更新数据版本号，通知其他实例数据已变化
-    await incrementDataVersion();
-}
+async function ensureKeyIndexBuilt() {
+    const ready = await kv.get<boolean>(KV_INDEX_READY_KEY);
+    if (ready.value) return;
 
-async function deleteKey(id: string): Promise<void> {
-    await kv.delete(["api_keys", id]);
-    // 更新数据版本号，通知其他实例数据已变化
-    await incrementDataVersion();
-}
+    const keys = await getAllKeys();
+    if (keys.length === 0) {
+        await kv.set(KV_INDEX_READY_KEY, true);
+        return;
+    }
 
-// 数据版本号管理（用于多实例同步）
-async function getDataVersion(): Promise<number> {
-    const result = await kv.get<number>(["meta", "data_version"]);
-    return result.value || 0;
-}
+    for (const group of chunkArray(keys, KV_ATOMIC_BATCH_SIZE * 2)) {
+        const atomic = kv.atomic();
+        group.forEach(({ key, id }) => {
+            atomic.set([...KV_KEY_INDEX_PREFIX, key], id);
+        });
+        await atomic.commit();
+    }
 
-async function incrementDataVersion(): Promise<number> {
-    const current = await getDataVersion();
-    const newVersion = current + 1;
-    await kv.set(["meta", "data_version"], newVersion);
-    return newVersion;
+    await kv.set(KV_INDEX_READY_KEY, true);
 }
 
 async function apiKeyExists(key: string): Promise<boolean> {
-    const keys = await getAllKeys();
-    return keys.some(k => k.key === key);
+    const indexed = await kv.get<string>([...KV_KEY_INDEX_PREFIX, key]);
+    if (indexed.value) return true;
+
+    // 如果索引还没构建完成，降级为全量扫描以避免重复写入
+    const ready = await kv.get<boolean>(KV_INDEX_READY_KEY);
+    if (!ready.value) {
+        const keys = await getAllKeys();
+        return keys.some(k => k.key === key);
+    }
+    return false;
+}
+
+async function addKeysBulk(items: ApiKey[]): Promise<number> {
+    if (items.length === 0) return await getDataVersion();
+
+    for (const group of chunkArray(items, KV_ATOMIC_BATCH_SIZE)) {
+        const atomic = kv.atomic();
+        group.forEach(({ id, key, createdAt }) => {
+            const storedData: StoredApiKey = {
+                key,
+                createdAt: createdAt || Date.now()
+            };
+            atomic.set([...KV_KEY_PREFIX, id], storedData);
+            atomic.set([...KV_KEY_INDEX_PREFIX, key], id);
+        });
+        const res = await atomic.commit();
+        if (!res.ok) throw new Error("KV atomic commit failed during add");
+    }
+
+    const newVersion = await bumpDataVersion();
+    await invalidateAggregatedCache();
+    return newVersion;
+}
+
+async function getKeysByIds(ids: string[]): Promise<ApiKey[]> {
+    const records = await Promise.all(ids.map(async (id): Promise<ApiKey | null> => {
+        const res = await kv.get<string | StoredApiKey>([...KV_KEY_PREFIX, id]);
+        if (!res.value) return null;
+        if (typeof res.value === 'string') {
+            return { id, key: res.value };
+        }
+        return { id, key: res.value.key, createdAt: res.value.createdAt };
+    }));
+    return records.filter(Boolean) as ApiKey[];
+}
+
+async function deleteKeysBulk(items: ApiKey[]): Promise<number> {
+    if (items.length === 0) return await getDataVersion();
+
+    for (const group of chunkArray(items, KV_ATOMIC_BATCH_SIZE)) {
+        const atomic = kv.atomic();
+        group.forEach(({ id, key }) => {
+            atomic.delete([...KV_KEY_PREFIX, id]);
+            atomic.delete([...KV_KEY_INDEX_PREFIX, key]);
+        });
+        const res = await atomic.commit();
+        if (!res.ok) throw new Error("KV atomic commit failed during delete");
+    }
+
+    const newVersion = await bumpDataVersion();
+    await invalidateAggregatedCache();
+    return newVersion;
 }
 
 // ==================== Utility Functions ====================
@@ -2934,7 +3038,7 @@ function logKeysWithBalance(validResults: ApiUsageData[], keyPairs: ApiKey[]): v
         keysWithBalance.forEach(item => {
             const originalKeyPair = keyPairs.find(kp => kp.id === item.id);
             if (originalKeyPair) {
-                console.log(originalKeyPair.key);
+                console.log(maskApiKey(originalKeyPair.key));
             }
         });
 
@@ -2942,6 +3046,43 @@ function logKeysWithBalance(validResults: ApiUsageData[], keyPairs: ApiKey[]): v
     } else {
         console.log("\n⚠️  没有剩余额度大于0的API Keys\n");
     }
+}
+
+
+// ==================== Shared Cache & Lock Helpers ====================
+
+async function loadAggregatedCacheFromKv(): Promise<AggregatedCacheEntry | null> {
+    const cached = await kv.get<AggregatedCacheEntry>(KV_AGGREGATED_CACHE_KEY);
+    return cached.value || null;
+}
+
+async function saveAggregatedCacheToKv(payload: AggregatedResponse, version: number) {
+    const entry: AggregatedCacheEntry = {
+        version,
+        updatedAt: Date.now(),
+        payload
+    };
+    await kv.set(KV_AGGREGATED_CACHE_KEY, entry);
+}
+
+async function hydrateCacheFromKv() {
+    const cached = await loadAggregatedCacheFromKv();
+    if (cached) {
+        serverState.updateCache(cached.payload);
+        serverState.setCachedDataVersion(cached.version);
+    }
+}
+
+async function acquireRefreshLock(): Promise<boolean> {
+    const res = await kv.atomic()
+        .check({ key: KV_REFRESH_LOCK_KEY, versionstamp: null })
+        .set(KV_REFRESH_LOCK_KEY, true, { expireIn: REFRESH_LOCK_TTL_MS })
+        .commit();
+    return res.ok;
+}
+
+async function releaseRefreshLock() {
+    await kv.delete(KV_REFRESH_LOCK_KEY);
 }
 
 
@@ -2957,11 +3098,22 @@ async function autoRefreshData(waitIfBusy = false) {
         if (waitIfBusy) {
             // 等待当前更新完成
             await serverState.waitForUpdate();
-            // 更新完成后，再执行一次刷新以获取最新数据
-        } else {
-            // 定时刷新：直接跳过，避免排队
-            return;
         }
+        // 避免重复刷新
+        return;
+    }
+
+    const lockAcquired = await acquireRefreshLock();
+    if (!lockAcquired) {
+        console.log("[autoRefreshData] Another instance holds the lock, skipping.");
+        if (waitIfBusy) {
+            const cached = await loadAggregatedCacheFromKv();
+            if (cached) {
+                serverState.updateCache(cached.payload);
+                serverState.setCachedDataVersion(cached.version);
+            }
+        }
+        return;
     }
 
     const timestamp = format(getBeijingTime(), "HH:mm:ss");
@@ -3005,8 +3157,10 @@ async function autoRefreshData(waitIfBusy = false) {
                 }
             };
             serverState.updateCache(filteredData);
+            await saveAggregatedCacheToKv(filteredData, currentDbVersion);
         } else {
             serverState.updateCache(data);
+            await saveAggregatedCacheToKv(data, currentDbVersion);
         }
 
         // 更新缓存的版本号
@@ -3015,6 +3169,8 @@ async function autoRefreshData(waitIfBusy = false) {
         console.log(`[${timestamp}] Data updated successfully (version: ${currentDbVersion}).`);
     } catch (error) {
         serverState.setError(error instanceof Error ? error.message : 'Refresh failed');
+    } finally {
+        await releaseRefreshLock();
     }
 }
 
@@ -3040,12 +3196,27 @@ async function handleGetData(): Promise<Response> {
     const cachedVersion = serverState.getCachedDataVersion();
 
     if (dbVersion !== cachedVersion && !serverState.isCurrentlyUpdating()) {
-        console.log(`[handleGetData] Version mismatch (db: ${dbVersion}, cached: ${cachedVersion}), triggering refresh`);
-        // 同步刷新，确保返回最新数据
-        await autoRefreshData(true);
+        console.log(`[handleGetData] Version mismatch (db: ${dbVersion}, cached: ${cachedVersion}), trying KV cache/refresh`);
+        const kvCached = await loadAggregatedCacheFromKv();
+        if (kvCached && kvCached.version === dbVersion) {
+            serverState.updateCache(kvCached.payload);
+            serverState.setCachedDataVersion(kvCached.version);
+        } else {
+            // 同步刷新，确保返回最新数据
+            await autoRefreshData(true);
+        }
     }
 
-    const cachedData = serverState.getData();
+    let cachedData = serverState.getData();
+
+    if (!cachedData) {
+        const kvCached = await loadAggregatedCacheFromKv();
+        if (kvCached && kvCached.version === dbVersion) {
+            serverState.updateCache(kvCached.payload);
+            serverState.setCachedDataVersion(kvCached.version);
+            cachedData = serverState.getData();
+        }
+    }
 
     if (cachedData) {
         return createJsonResponse(cachedData);
@@ -3101,37 +3272,39 @@ async function handleAddKeys(req: Request): Promise<Response> {
 
 async function handleBatchImport(items: unknown[]): Promise<Response> {
     let added = 0, skipped = 0;
-    const existingKeys = new Set((await getAllKeys()).map(k => k.key));
 
     // 先对输入进行去重
     const seenKeys = new Set<string>();
-    const keysToAdd: { id: string; key: string }[] = [];
+    const keysToAdd: ApiKey[] = [];
+    const timestamp = Date.now();
+    let counter = 0;
 
     for (const item of items) {
         if (!item || typeof item !== 'object' || !('key' in item)) continue;
 
         const { key } = item as { key: string };
-        if (!key) continue;
+        const normalizedKey = key.trim();
+        if (!normalizedKey) continue;
 
         // 检查是否已存在于数据库或本次导入已包含
-        if (existingKeys.has(key) || seenKeys.has(key)) {
+        if (seenKeys.has(normalizedKey) || await apiKeyExists(normalizedKey)) {
             skipped++;
             continue;
         }
 
-        seenKeys.add(key);
+        seenKeys.add(normalizedKey);
         keysToAdd.push({
-            id: `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-            key
+            id: `key-${timestamp}-${counter++}-${Math.random().toString(36).substring(2, 8)}`,
+            key: normalizedKey,
+            createdAt: timestamp
         });
         added++;
     }
 
-    // 并行写入数据库（批量操作，速度快）
     if (keysToAdd.length > 0) {
-        await Promise.all(keysToAdd.map(({ id, key }) => addKey(id, key)));
-        // 等待刷新完成，确保前端能获取最新数据
-        await autoRefreshData(true);
+        await addKeysBulk(keysToAdd);
+        // 后台刷新（不阻塞响应）
+        queueMicrotask(() => autoRefreshData().catch(err => console.error(err)));
     }
 
     return createJsonResponse({ success: true, added, skipped });
@@ -3143,13 +3316,14 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
     }
 
     const { key } = body as { key: string };
-    if (!key) return createErrorResponse("key cannot be empty", 400);
-    if (await apiKeyExists(key)) return createErrorResponse("API key already exists", 409);
+    const normalizedKey = key.trim();
+    if (!normalizedKey) return createErrorResponse("key cannot be empty", 400);
+    if (await apiKeyExists(normalizedKey)) return createErrorResponse("API key already exists", 409);
 
     const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    await addKey(id, key);
-    // 等待刷新完成，确保前端能获取最新数据
-    await autoRefreshData(true);
+    await addKeysBulk([{ id, key: normalizedKey }]);
+    // 后台刷新（不阻塞响应）
+    queueMicrotask(() => autoRefreshData().catch(err => console.error(err)));
 
     return createJsonResponse({ success: true });
 }
@@ -3163,8 +3337,12 @@ async function handleDeleteKey(pathname: string): Promise<Response> {
     serverState.removeKeysFromCache([id]);
     console.log(`[DELETE] Marked as pending deletion, pendingDeletions size: ${serverState.getPendingDeletionsSize()}`);
 
-    // 然后删除数据库
-    await deleteKey(id);
+    const records = await getKeysByIds([id]);
+    if (records.length === 0) {
+        return createErrorResponse("Key not found", 404);
+    }
+
+    await deleteKeysBulk(records);
     console.log(`[DELETE] Database delete completed for id: ${id}`);
 
     return createJsonResponse({ success: true });
@@ -3180,10 +3358,10 @@ async function handleBatchDeleteKeys(req: Request): Promise<Response> {
         // 先标记为待删除，防止并发刷新带来旧数据
         serverState.removeKeysFromCache(ids);
 
-        // 然后删除数据库
-        await Promise.all(ids.map(id => deleteKey(id).catch(() => { })));
+        const records = await getKeysByIds(ids);
+        await deleteKeysBulk(records);
 
-        return createJsonResponse({ success: true, deleted: ids.length });
+        return createJsonResponse({ success: true, deleted: records.length });
     } catch (error) {
         return createErrorResponse(error instanceof Error ? error.message : 'Invalid JSON', 400);
     }
@@ -3199,42 +3377,42 @@ async function handleBatchDeleteByValue(req: Request): Promise<Response> {
             return createErrorResponse("keys array is required", 400);
         }
 
-        // 获取所有存储的 keys
-        const allKeys = await getAllKeys();
-
-        // 创建 key 值到 id 的映射
-        const keyToIdMap = new Map<string, string>();
-        allKeys.forEach(k => keyToIdMap.set(k.key, k.id));
-
         // 找到要删除的 key 对应的 id
-        const idsToDelete: string[] = [];
+        const recordsToDelete: ApiKey[] = [];
         let notFound = 0;
+        const seen = new Set<string>();
 
-        for (const keyValue of keys) {
-            const trimmedKey = keyValue.trim();
-            if (!trimmedKey) continue;
+        keys.forEach(k => {
+            const trimmedKey = k.trim();
+            if (!trimmedKey) return;
+            if (seen.has(trimmedKey)) return;
+            seen.add(trimmedKey);
+        });
 
-            const id = keyToIdMap.get(trimmedKey);
-            if (id) {
-                idsToDelete.push(id);
+        const uniqueKeys = Array.from(seen);
+        const lookups = await Promise.all(uniqueKeys.map(key => kv.get<string>([...KV_KEY_INDEX_PREFIX, key])));
+        lookups.forEach((res, idx) => {
+            const key = uniqueKeys[idx];
+            if (res.value) {
+                recordsToDelete.push({ id: res.value, key });
             } else {
                 notFound++;
             }
-        }
+        });
 
-        if (idsToDelete.length === 0) {
+        if (recordsToDelete.length === 0) {
             return createJsonResponse({ success: true, deleted: 0, notFound });
         }
 
         // 先标记为待删除，防止并发刷新带来旧数据
-        serverState.removeKeysFromCache(idsToDelete);
+        serverState.removeKeysFromCache(recordsToDelete.map(r => r.id));
 
         // 然后批量删除数据库
-        await Promise.all(idsToDelete.map(id => deleteKey(id).catch(() => { })));
+        await deleteKeysBulk(recordsToDelete);
 
         return createJsonResponse({
             success: true,
-            deleted: idsToDelete.length,
+            deleted: recordsToDelete.length,
             notFound
         });
     } catch (error) {
@@ -3302,25 +3480,13 @@ async function handleRefreshSingleKey(pathname: string): Promise<Response> {
             return createErrorResponse("Key ID is required", 400);
         }
 
-        // Get the key from database
-        const result = await kv.get<string | StoredApiKey>(["api_keys", id]);
-
-        if (!result.value) {
+        const records = await getKeysByIds([id]);
+        if (records.length === 0) {
             return createErrorResponse("Key not found", 404);
         }
 
-        // 兼容旧数据和新数据
-        let key: string;
-        let createdAt: number | undefined;
-        if (typeof result.value === 'string') {
-            key = result.value;
-            createdAt = undefined;
-        } else {
-            key = result.value.key;
-            createdAt = result.value.createdAt;
-        }
-
         // Fetch fresh data for this key
+        const { key, createdAt } = records[0];
         const keyData = await fetchApiKeyData(id, key, createdAt);
 
         return createJsonResponse({
@@ -3405,6 +3571,12 @@ async function handler(req: Request): Promise<Response> {
 
 async function startServer() {
     console.log("Initializing server...");
+
+    // 确保旧数据构建好索引，避免重复写入和慢查询
+    await ensureKeyIndexBuilt();
+
+    // 优先从 KV 缓存里加载数据，减少冷启动空白时间
+    await hydrateCacheFromKv();
 
     // Perform an initial data fetch on startup and WAIT for it to complete
     console.log("Performing initial data fetch...");
