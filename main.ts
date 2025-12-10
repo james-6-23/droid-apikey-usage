@@ -3314,8 +3314,8 @@ async function handleBatchImport(items: unknown[]): Promise<Response> {
 
     if (keysToAdd.length > 0) {
         await addKeysBulk(keysToAdd);
-        // 后台刷新（不阻塞响应）
-        queueMicrotask(() => autoRefreshData().catch(err => console.error(err)));
+        // 同步刷新，确保前端能立刻看到新增
+        await autoRefreshData(true);
     }
 
     return createJsonResponse({ success: true, added, skipped });
@@ -3333,8 +3333,8 @@ async function handleSingleKeyAdd(body: unknown): Promise<Response> {
 
     const id = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     await addKeysBulk([{ id, key: normalizedKey }]);
-    // 后台刷新（不阻塞响应）
-    queueMicrotask(() => autoRefreshData().catch(err => console.error(err)));
+    // 同步刷新，确保前端能立刻看到新增
+    await autoRefreshData(true);
 
     return createJsonResponse({ success: true });
 }
