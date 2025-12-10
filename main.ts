@@ -97,7 +97,7 @@ const KV_INDEX_READY_KEY = ["meta", "index_ready"] as const;
 const KV_AGGREGATED_CACHE_KEY = ["cache", "aggregated"] as const;
 const KV_REFRESH_LOCK_KEY = ["locks", "refresh"] as const;
 const KV_ATOMIC_BATCH_SIZE = 4; // keep atomic ops well under the limit (each key uses 2 ops)
-const REFRESH_LOCK_TTL_MS = 120_000;
+const REFRESH_LOCK_TTL_MS = 30_000;
 
 // ==================== Server State and Caching (NEW) ====================
 
@@ -476,6 +476,8 @@ function createJsonResponse(data: unknown, status = 200): Response {
 function createErrorResponse(message: string, status = 500): Response {
     return createJsonResponse({ error: message }, status);
 }
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // HTML content is embedded as a template string
 const HTML_CONTENT = `  
@@ -3099,12 +3101,20 @@ async function autoRefreshData(waitIfBusy = false) {
         if (waitIfBusy) {
             // 等待当前更新完成
             await serverState.waitForUpdate();
+        } else {
+            // 定时刷新：直接跳过，避免排队
+            return;
         }
-        // 避免重复刷新
-        return;
     }
 
-    const lockAcquired = await acquireRefreshLock();
+    // 尝试获取锁，waitIfBusy 时重试几次
+    const maxAttempts = waitIfBusy ? 5 : 1;
+    let lockAcquired = false;
+    for (let i = 0; i < maxAttempts; i++) {
+        lockAcquired = await acquireRefreshLock();
+        if (lockAcquired) break;
+        await sleep(800);
+    }
     if (!lockAcquired) {
         console.log("[autoRefreshData] Another instance holds the lock, skipping.");
         if (waitIfBusy) {
@@ -3343,7 +3353,12 @@ async function handleDeleteKey(pathname: string): Promise<Response> {
         return createErrorResponse("Key not found", 404);
     }
 
-    await deleteKeysBulk(records);
+    const newVersion = await deleteKeysBulk(records);
+    serverState.setCachedDataVersion(newVersion);
+    const updated = serverState.getData();
+    if (updated) {
+        await saveAggregatedCacheToKv(updated, newVersion);
+    }
     console.log(`[DELETE] Database delete completed for id: ${id}`);
 
     return createJsonResponse({ success: true });
@@ -3360,7 +3375,12 @@ async function handleBatchDeleteKeys(req: Request): Promise<Response> {
         serverState.removeKeysFromCache(ids);
 
         const records = await getKeysByIds(ids);
-        await deleteKeysBulk(records);
+        const newVersion = await deleteKeysBulk(records);
+        serverState.setCachedDataVersion(newVersion);
+        const updated = serverState.getData();
+        if (updated) {
+            await saveAggregatedCacheToKv(updated, newVersion);
+        }
 
         return createJsonResponse({ success: true, deleted: records.length });
     } catch (error) {
@@ -3409,7 +3429,12 @@ async function handleBatchDeleteByValue(req: Request): Promise<Response> {
         serverState.removeKeysFromCache(recordsToDelete.map(r => r.id));
 
         // 然后批量删除数据库
-        await deleteKeysBulk(recordsToDelete);
+        const newVersion = await deleteKeysBulk(recordsToDelete);
+        serverState.setCachedDataVersion(newVersion);
+        const updated = serverState.getData();
+        if (updated) {
+            await saveAggregatedCacheToKv(updated, newVersion);
+        }
 
         return createJsonResponse({
             success: true,
