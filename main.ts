@@ -491,7 +491,7 @@ function mergePlaceholdersIntoCache(newKeys: ApiKey[]) {
             id: k.id,
             key: maskApiKey(k.key),
             fullKey: k.key,
-            error: "等待刷新...",
+            error: "刷新中...",
             createdAt: k.createdAt
         }));
 
@@ -1431,6 +1431,7 @@ const HTML_CONTENT = `
         let isLoading = false;
         const formatNumber = (num) => num ? new Intl.NumberFormat('en-US').format(num) : '0';
         const formatPercentage = (ratio) => ratio ? (ratio * 100).toFixed(2) + '%' : '0.00%';
+        let placeholderRefreshTimer = null;
 
         // 排序状态
         let sortConfig = {
@@ -2326,6 +2327,15 @@ const HTML_CONTENT = `
             if (selectAllCheckbox && allCheckboxes.length > 0) {
                 selectAllCheckbox.checked = checkedCheckboxes.length === allCheckboxes.length;
                 selectAllCheckbox.indeterminate = checkedCheckboxes.length > 0 && checkedCheckboxes.length < allCheckboxes.length;
+            }
+
+            // 若存在“刷新中”占位数据，自动快速轮询一次
+            if (data.data.some(item => item.error === '刷新中...')) {
+                if (placeholderRefreshTimer) clearTimeout(placeholderRefreshTimer);
+                placeholderRefreshTimer = setTimeout(() => {
+                    placeholderRefreshTimer = null;
+                    loadData();
+                }, 2000);
             }
         }  
   
